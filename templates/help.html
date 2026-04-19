@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Setup guide — Secure Infrastructure Gateway</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #1e1e2e; color: #cdd6f4; margin: 0; padding: 2rem; max-width: 900px; margin: 0 auto; line-height: 1.55; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; gap: 1rem; }
+    h1 { margin: 0; font-size: 1.5rem; }
+    h2 { margin-top: 2.5rem; font-size: 1.25rem; color: #cdd6f4; }
+    h3 { margin-top: 1.75rem; font-size: 1rem; color: #89b4fa; }
+    a { color: #89b4fa; }
+    a:hover { color: #74c7ec; }
+    code, kbd { font-family: ui-monospace, monospace; background: #313244; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+    pre { background: #11111b; border: 1px solid #313244; border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 0.9rem; margin: 0.6rem 0 1.2rem; }
+    pre code { background: none; padding: 0; }
+    ul { padding-left: 1.25rem; }
+    li { margin-bottom: 0.4rem; }
+    .back { color: #a6adc8; text-decoration: none; border: 1px solid #45475a; padding: 0.4rem 0.9rem; border-radius: 5px; font-size: 0.9rem; }
+    .back:hover { background: #313244; color: #cdd6f4; }
+    .callout { background: #313244; border-left: 3px solid #89b4fa; padding: 0.8rem 1rem; border-radius: 4px; margin: 1rem 0; }
+    .callout-warn { border-color: #f9e2af; background: rgba(249, 226, 175, 0.07); }
+    .callout-danger { border-color: #f38ba8; background: rgba(243, 139, 168, 0.07); }
+
+    .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid #45475a; margin-top: 1.5rem; }
+    .tabs button { background: transparent; color: #a6adc8; border: 0; border-bottom: 2px solid transparent; padding: 0.7rem 1.1rem; font-size: 0.95rem; font-weight: 500; cursor: pointer; margin-bottom: -1px; font-family: inherit; }
+    .tabs button[aria-selected="true"] { color: #cdd6f4; border-color: #89b4fa; }
+    .tabs button:hover { color: #cdd6f4; }
+    .tab-panel { display: none; padding-top: 1rem; }
+    .tab-panel[aria-hidden="false"] { display: block; }
+
+    .step { display: flex; gap: 0.75rem; margin: 1rem 0; }
+    .step-num { flex-shrink: 0; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: #89b4fa; color: #1e1e2e; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; }
+    .step-body { flex: 1; }
+    .step-body h4 { margin: 0 0 0.2rem; font-size: 1rem; color: #cdd6f4; }
+    .step-body p { margin: 0.3rem 0; color: #a6adc8; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Setup guide</h1>
+    <a class="back" href="{{ url_for('dashboard') }}">← Back to dashboard</a>
+  </header>
+
+  <p>This gateway uses <strong>WireGuard</strong> — a small, fast VPN protocol — to
+  securely tunnel only the traffic you need to reach protected infrastructure.
+  Everything else (your normal internet) stays on your regular connection.</p>
+
+  <div class="callout callout-danger">
+    <strong>Your config file is a credential.</strong>
+    The <code>.conf</code> file you download contains a private cryptographic
+    key that identifies <strong>you personally</strong>. Treat it like a
+    password. Never share it with anyone, never commit it to git, never paste
+    it into chat. If it leaks, come straight back to the dashboard and click
+    <em>Rotate &amp; download config</em> — the old one is invalidated instantly.
+  </div>
+
+  <h2>How it works, in 30 seconds</h2>
+  <ol>
+    <li>You download a personal WireGuard config (<code>.conf</code>) from the dashboard.</li>
+    <li>You import it into the WireGuard client on your computer and activate the tunnel.</li>
+    <li>On the dashboard, you activate a specific service (e.g. <em>ssh</em>) for up to 8 hours at a time.</li>
+    <li>Your client now reaches that service's real hostname directly — certificates work normally, as if you were on the internal network.</li>
+    <li>When your activation expires, the access goes away automatically.</li>
+  </ol>
+
+  <h2>Install WireGuard</h2>
+  <p>Pick your operating system:</p>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="win">Windows</button>
+    <button role="tab" aria-selected="false" data-tab="mac">macOS</button>
+    <button role="tab" aria-selected="false" data-tab="linux">Linux</button>
+  </div>
+
+  <!-- ============================= WINDOWS ============================ -->
+  <section class="tab-panel" data-tab="win" aria-hidden="false">
+    <h3>1. Install the WireGuard client</h3>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Download the installer</h4>
+        <p>Get the official installer from <a href="https://www.wireguard.com/install/" target="_blank" rel="noopener">wireguard.com/install</a>
+           (the link labelled <em>Windows Installer</em>).</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Run the installer</h4>
+        <p>Double-click the downloaded <code>.msi</code> file and accept the
+        Windows admin prompt. Installation is silent and takes a few seconds.</p>
+      </div>
+    </div>
+
+    <h3>2. Import your tunnel</h3>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Open WireGuard</h4>
+        <p>Start it from the Start menu. The main window is empty the first time.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Import the <code>.conf</code> file you downloaded</h4>
+        <p>Click <strong>Import tunnel(s) from file</strong> (bottom left) and pick
+        the file (e.g. <code>wepublish-gw.conf</code>) from your Downloads folder.
+        You can also drag the file onto the window.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Activate the tunnel</h4>
+        <p>Select the tunnel in the list and click <strong>Activate</strong>. Within
+        a few seconds you'll see a green status and traffic counters start ticking.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Tip:</strong> Windows reliably auto-reconnects the tunnel after
+      sleep/suspend. No extra configuration needed.
+    </div>
+  </section>
+
+  <!-- ============================== MAC =============================== -->
+  <section class="tab-panel" data-tab="mac" aria-hidden="true">
+    <h3>1. Install the WireGuard client</h3>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Install from the Mac App Store</h4>
+        <p>Open the <em>App Store</em>, search for <strong>WireGuard</strong>,
+        and install it (it's free and by <em>WireGuard Development Team</em>).
+        Direct link:
+        <a href="https://apps.apple.com/us/app/wireguard/id1451685025" target="_blank" rel="noopener">
+          apps.apple.com/app/wireguard
+        </a>.</p>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>Homebrew alternative (advanced):</strong>
+      <pre><code>brew install wireguard-tools</code></pre>
+      This gives you the CLI (<code>wg-quick</code>, <code>wg</code>) but no GUI;
+      recommended only if you already use Homebrew heavily.
+    </div>
+
+    <h3>2. Import your tunnel</h3>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Open WireGuard</h4>
+        <p>Launch it from <em>Applications</em>. A WireGuard icon appears in the menu bar.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Import the <code>.conf</code> file you downloaded</h4>
+        <p>Click the menu-bar icon, then <strong>Manage Tunnels…</strong> →
+        <strong>+</strong> (bottom left) → <strong>Import Tunnel(s) from File…</strong>
+        and select your <code>.conf</code>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Activate the tunnel</h4>
+        <p>Toggle the switch next to the tunnel name. macOS will ask for permission
+        to add a VPN configuration — click <strong>Allow</strong>. Approve it with
+        Touch ID or your password.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= LINUX ============================== -->
+  <section class="tab-panel" data-tab="linux" aria-hidden="true">
+    <p>Linux has two good paths. Pick the one that matches how you normally
+    run your machine — both work equally well.</p>
+
+    <h3>Option A — Graphical (GNOME, KDE, most desktop distros)</h3>
+    <p>NetworkManager has built-in WireGuard support on any reasonably
+    current distro (Ubuntu 22.04+, Fedora 36+, Debian 12+, Arch). You don't
+    need to install anything extra.</p>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Open your Network settings</h4>
+        <p><strong>GNOME:</strong> <em>Settings → Network</em> → click the <strong>+</strong>
+        next to "VPN" → <strong>Import from file…</strong>.<br>
+        <strong>KDE Plasma:</strong> <em>System Settings → Connections</em> → <strong>+</strong>
+        → <strong>Import VPN connection…</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Pick the downloaded <code>.conf</code></h4>
+        <p>The settings will recognise it as WireGuard and pre-fill every field.
+        Click <strong>Add</strong> / <strong>Save</strong>.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Toggle the connection on</h4>
+        <p>From the same Network panel, flip the switch. You can also toggle
+        from the system tray / status area menu like any other VPN.</p>
+      </div>
+    </div>
+
+    <h3>Option B — Command line (servers, Sway, i3, or CLI-only machines)</h3>
+    <p>Install the userspace tools (kernel support is built in):</p>
+    <pre><code># Debian / Ubuntu
+sudo apt update &amp;&amp; sudo apt install -y wireguard-tools
+
+# Fedora / RHEL
+sudo dnf install -y wireguard-tools
+
+# Arch / Manjaro
+sudo pacman -S wireguard-tools</code></pre>
+
+    <p>Move the downloaded config into <code>/etc/wireguard/</code> with
+    strict permissions so <code>wg-quick</code> accepts it:</p>
+    <pre><code>sudo install -m 600 ~/Downloads/wepublish-gw.conf /etc/wireguard/</code></pre>
+
+    <p>Bring the tunnel up:</p>
+    <pre><code>sudo wg-quick up wepublish-gw</code></pre>
+    <p>Verify:</p>
+    <pre><code>sudo wg show</code></pre>
+    <p>You should see <code>latest handshake: N seconds ago</code> within
+    ~5 seconds.</p>
+
+    <p>Tear it down when you're done:</p>
+    <pre><code>sudo wg-quick down wepublish-gw</code></pre>
+
+    <p>Optional, auto-start on boot:</p>
+    <pre><code>sudo systemctl enable wg-quick@wepublish-gw</code></pre>
+  </section>
+
+  <h2>Using the gateway</h2>
+
+  <h3>Activate a service</h3>
+  <p>Go back to the dashboard. You'll see a list of services configured for you.
+  Click <strong>Activate</strong> on any one — you get access for <strong>1 hour</strong>
+  by default.</p>
+
+  <h3>Extend an active session</h3>
+  <p>Each active service shows a live countdown. Click <strong>Extend +1h</strong>
+  to add another hour, capped at 8 hours remaining. You can keep clicking as
+  time passes — there's no hard lifetime limit, you just never have more than
+  8 hours at once.</p>
+
+  <h3>Deactivate early</h3>
+  <p>Click <strong>Deactivate</strong> on any active service to end your session
+  immediately. Any open TCP connections (SSH, psql, etc.) are killed within a
+  second.</p>
+
+  <h3>What happens when a timer expires</h3>
+  <p>The gateway automatically tears down access. Your tunnel stays up, but it
+  cannot reach any service until you activate one again. Open connections at
+  the moment of expiry are also dropped.</p>
+
+  <h2>Troubleshooting</h2>
+
+  <h3>"No handshake" / the tunnel doesn't connect</h3>
+  <ul>
+    <li>Your firewall may block outbound UDP on port 51820. Whitelist it.</li>
+    <li>If you're on a restrictive network (café, airport, hotel), WireGuard's UDP
+        may be blocked entirely. You'd need a network change or a TCP-tunnel
+        alternative (out of scope here).</li>
+    <li>Double-check the endpoint hostname/IP in your <code>.conf</code> resolves —
+        from a terminal: <code>ping &lt;endpoint&gt;</code>.</li>
+  </ul>
+
+  <h3>Handshake works, but I can't reach the service</h3>
+  <ul>
+    <li>Did you click <strong>Activate</strong> on that service in the dashboard?</li>
+    <li>Has the activation timer expired? Check the countdown.</li>
+    <li>Is the service blocked for you by an admin? The service row will say
+        "blocked by admin" and the Activate button will be disabled.</li>
+    <li>Did you just rotate your config? The old one is dead immediately —
+        import the new one.</li>
+  </ul>
+
+  <h3>"Everything routes through the VPN and I'm slow"</h3>
+  <p>This shouldn't happen — the config is scoped so only service IPs and the
+  WG network (<code>10.77.0.0/24</code>) go through the tunnel. If you see
+  otherwise, your <code>AllowedIPs</code> was modified; re-download a fresh
+  config from the dashboard.</p>
+
+  <h3>How do I stop the tunnel?</h3>
+  <ul>
+    <li><strong>Windows / macOS:</strong> toggle the tunnel off in the WireGuard app.</li>
+    <li><strong>Linux:</strong> <code>sudo wg-quick down wepublish-gw</code></li>
+  </ul>
+
+  <h2>Questions or problems?</h2>
+  <p>Ask your infrastructure admin — they can see the audit log and help
+  figure out what happened.</p>
+
+<script>
+  document.querySelectorAll('.tabs button[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.tabs button').forEach(b =>
+        b.setAttribute('aria-selected', b.dataset.tab === tab ? 'true' : 'false'));
+      document.querySelectorAll('.tab-panel').forEach(p =>
+        p.setAttribute('aria-hidden', p.dataset.tab === tab ? 'false' : 'true'));
+    });
+  });
+</script>
+</body>
+</html>

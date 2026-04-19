@@ -289,6 +289,11 @@ def create_app(config: dict) -> Flask:
             audit.record("logout", user=user, ip=request.remote_addr)
         return redirect(url_for("login"))
 
+    @app.route("/help")
+    @login_required
+    def help_page():
+        return render_template("help.html")
+
     @app.route("/")
     @login_required
     def dashboard():

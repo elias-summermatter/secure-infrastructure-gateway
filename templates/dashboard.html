@@ -67,6 +67,18 @@
     .chip button:hover { opacity: 1; }
     .block-picker { background: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.8rem; margin-top: 0.15rem; }
     .no-entry { color: #6c7086; font-size: 0.8rem; font-style: italic; }
+
+    /* Download confirmation modal */
+    .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 1000; }
+    .modal.hidden { display: none; }
+    .modal-box { background: #313244; border-radius: 10px; padding: 1.5rem 1.75rem; max-width: 560px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+    .modal-box h3 { margin: 0 0 0.75rem 0; font-size: 1.15rem; }
+    .modal-warn { background: rgba(243, 139, 168, 0.12); border-left: 3px solid #f38ba8; padding: 0.7rem 0.9rem; border-radius: 4px; margin-bottom: 1rem; color: #cdd6f4; font-size: 0.95rem; }
+    .modal-rules { padding-left: 1.1rem; margin: 0 0 1.25rem 0; color: #cdd6f4; font-size: 0.9rem; }
+    .modal-rules li { margin-bottom: 0.4rem; }
+    .modal-ack { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.75rem; background: #1e1e2e; border-radius: 6px; border: 1px solid #45475a; cursor: pointer; font-size: 0.9rem; line-height: 1.45; }
+    .modal-ack input { margin-top: 0.2rem; flex-shrink: 0; cursor: pointer; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
   </style>
 </head>
 <body data-has-config="{{ 'true' if has_config else 'false' }}" data-is-admin="{{ 'true' if is_admin else 'false' }}">
@@ -79,9 +91,12 @@
         · Endpoint <span class="ip">{{ endpoint }}</span>
       </div>
     </div>
-    <form method="post" action="{{ url_for('logout') }}">
-      <button class="logout" type="submit">Sign out</button>
-    </form>
+    <div style="display:flex;gap:0.5rem;align-items:center">
+      <a class="logout" href="{{ url_for('help_page') }}" style="text-decoration:none">Setup guide</a>
+      <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+        <button class="logout" type="submit">Sign out</button>
+      </form>
+    </div>
   </header>
 
   <div class="card" id="config-card">
@@ -96,11 +111,42 @@
         on the gateway. The private key is only shown once at download time.
       {% endif %}
     </p>
-    <form method="post" action="{{ url_for('wg_config') }}">
-      <button class="btn-primary" type="submit">
-        {{ "Rotate &amp; download config" | safe if has_config else "Generate &amp; download config" | safe }}
-      </button>
-    </form>
+    <button class="btn-primary" type="button" id="open-download-modal">
+      {{ "Rotate &amp; download config" | safe if has_config else "Generate &amp; download config" | safe }}
+    </button>
+    <a href="{{ url_for('help_page') }}" style="margin-left:0.75rem;color:#a6adc8;font-size:0.85rem">How do I use this file? →</a>
+  </div>
+
+  <!-- Confirmation modal shown before (re)downloading a WG config. The user
+       must acknowledge the "do not share" rule in writing before the form
+       will submit. -->
+  <div id="download-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="download-modal-title">
+    <div class="modal-box">
+      <h3 id="download-modal-title">Before you download</h3>
+      <div class="modal-warn">
+        This file unlocks access to protected infrastructure. It contains a
+        private cryptographic key that identifies <strong>you personally</strong>.
+      </div>
+      <ul class="modal-rules">
+        <li>Anyone with this file can impersonate you on the gateway.</li>
+        <li>Treat it like a password: <strong>never</strong> share it, email it, paste it into chat, or commit it to git.</li>
+        <li>Store it only on devices you control — not shared drives or cloud sync folders.</li>
+        <li>If the file ever leaks, come straight back here and click <em>Rotate</em> — the old one is invalidated instantly.</li>
+      </ul>
+      <form method="post" action="{{ url_for('wg_config') }}" id="download-form">
+        <label class="modal-ack">
+          <input type="checkbox" id="ack" required>
+          <span>I understand, and I will <strong>not</strong> share this configuration
+            with anyone under any circumstances.</span>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="cancel-download">Cancel</button>
+          <button type="submit" class="btn-danger" id="confirm-download" disabled>
+            I agree — download now
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <h2>Services</h2>
@@ -199,6 +245,33 @@ let blockedForMe = new Set();
 let hasConfig = document.body.dataset.hasConfig === 'true';
 const isAdmin = document.body.dataset.isAdmin === 'true';
 const currentUser = {{ user | tojson }};
+
+// --- download confirmation modal ---------------------------------------
+(() => {
+  const modal = document.getElementById('download-modal');
+  const openBtn = document.getElementById('open-download-modal');
+  const cancelBtn = document.getElementById('cancel-download');
+  const confirmBtn = document.getElementById('confirm-download');
+  const ack = document.getElementById('ack');
+  const form = document.getElementById('download-form');
+  if (!modal || !openBtn) return;
+
+  const show = () => { modal.classList.remove('hidden'); ack.checked = false; confirmBtn.disabled = true; };
+  const hide = () => { modal.classList.add('hidden'); };
+
+  openBtn.addEventListener('click', show);
+  cancelBtn.addEventListener('click', hide);
+  modal.addEventListener('click', (e) => { if (e.target === modal) hide(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) hide();
+  });
+  ack.addEventListener('change', () => { confirmBtn.disabled = !ack.checked; });
+  form.addEventListener('submit', () => {
+    // Let the browser handle the download, then tear down the modal so the
+    // user sees the dashboard refresh with has_config=true.
+    setTimeout(hide, 500);
+  });
+})();
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
