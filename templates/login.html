@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Sign in — Auth TCP Proxy</title>
+  <title>Sign in — Secure Infrastructure Gateway</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; }
-    form { background: #313244; padding: 2rem; border-radius: 10px; min-width: 320px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-    h1 { margin: 0 0 1.5rem 0; font-size: 1.25rem; }
+    form { background: #313244; padding: 2rem; border-radius: 10px; min-width: 340px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    h1 { margin: 0 0 0.25rem 0; font-size: 1.25rem; }
+    .subtitle { color: #a6adc8; font-size: 0.85rem; margin-bottom: 1.5rem; }
     label { display: block; margin-bottom: 0.25rem; color: #a6adc8; font-size: 0.85rem; }
     input { width: 100%; padding: 0.6rem; margin-bottom: 1rem; background: #1e1e2e; color: inherit; border: 1px solid #45475a; border-radius: 6px; box-sizing: border-box; font-size: 1rem; }
     input:focus { outline: none; border-color: #89b4fa; }
@@ -18,7 +19,8 @@
 </head>
 <body>
   <form method="post">
-    <h1>Auth TCP Proxy</h1>
+    <h1>Secure Infrastructure Gateway</h1>
+    <div class="subtitle">Sign in to manage your WireGuard access</div>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <label for="username">Username</label>
     <input id="username" name="username" autofocus required autocomplete="username">

@@ -1,27 +1,81 @@
 services:
-  auth-proxy:
+  gateway:
     build: .
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.src_valid_mark: "1"
     ports:
-      - "8080:8080"   # web UI
-      - "5432:5432"   # postgres proxy
-      - "8888:8888"   # web-target proxy
+      - "8080:8080"           # web UI
+      - "51820:51820/udp"     # WireGuard
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./logs:/app/logs
-    depends_on:
-      - postgres
-      - nginx
+      - ./state:/app/state
+    # These mappings let the gateway resolve the real hostnames in
+    # config.yaml to the local test containers, so no config change is
+    # needed when moving from local test to production DNS.
+    extra_hosts:
+      - "ssh.wepublish.cloud=10.88.0.10"
+      - "console-openshift-console.apps.os.wepublish.cloud=10.88.0.11"
+      - "postgres01.wepublish.cloud=10.88.0.12"
+    networks:
+      default:
     restart: unless-stopped
 
-  # Target service #1 — real Postgres for testing psql through the proxy.
+  # ---- Test target services (only reachable through the gateway) --------
+  # For local testing, put the following lines in your laptop's /etc/hosts
+  # so hostname-based access works transparently while the real IPs are
+  # the static container addresses below:
+  #
+  #   10.88.0.10  ssh.wepublish.cloud
+  #   10.88.0.11  console-openshift-console.apps.os.wepublish.cloud
+  #   10.88.0.12  postgres01.wepublish.cloud
+  #
+  # Your WG config already includes 10.88.0.0/24 in AllowedIPs because the
+  # gateway resolves these hostnames via Docker DNS at startup — so traffic
+  # to those IPs on your laptop goes through the tunnel to the gateway,
+  # which FORWARDs to the matching container when the service is activated.
+
+  sshd:
+    image: alpine:3.19
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache openssh >/dev/null
+        ssh-keygen -A >/dev/null
+        adduser -D -s /bin/sh testuser
+        echo "testuser:testpass" | chpasswd
+        mkdir -p /var/run/sshd
+        exec /usr/sbin/sshd -D -e
+    networks:
+      default:
+        ipv4_address: 10.88.0.10
+
+  nginx:
+    image: nginx:alpine
+    networks:
+      default:
+        ipv4_address: 10.88.0.11
+
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_PASSWORD: testpass
       POSTGRES_USER: testuser
       POSTGRES_DB: testdb
-    # No host port mapping: reachable only via auth-proxy.
+    networks:
+      default:
+        ipv4_address: 10.88.0.12
 
-  # Target service #2 — plain nginx so you can curl through the proxy.
-  nginx:
-    image: nginx:alpine
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.88.0.0/24

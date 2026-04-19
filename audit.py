@@ -15,8 +15,7 @@ log = logging.getLogger(__name__)
 CATEGORY = {
     "login": "auth", "login_failed": "auth", "logout": "auth",
     "activate": "grant", "extend": "grant", "deactivate": "grant",
-    "connection_opened": "connection", "connection_closed": "connection",
-    "connection_rejected": "error", "connection_error": "error",
+    "grant_expired": "grant", "wg_config_generated": "grant",
 }
 
 
@@ -28,8 +27,6 @@ def _categories(event: str) -> list[str]:
 
 
 def _actor(entry: dict) -> Optional[str]:
-    if entry.get("event", "").startswith("connection_"):
-        return entry.get("granted_by")
     return entry.get("user")
 
 

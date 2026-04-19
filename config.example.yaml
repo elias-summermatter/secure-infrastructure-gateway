@@ -1,41 +1,70 @@
-# Copy this file to config.yaml and customise.
-# The password hash below is bcrypt("admin") — change it with hash_password.py
-# before putting this anywhere but a local test machine.
+# Copy to config.yaml and customise. Password hash below is bcrypt("admin") —
+# change it with hash_password.py before any non-local use.
 
 secret_key: "CHANGE-ME-TO-A-LONG-RANDOM-STRING"
 
-# Web UI listener
+# Web UI
 web:
   host: "0.0.0.0"
   port: 8080
-
-# If running behind nginx/traefik with X-Forwarded-For, set true so the
-# dashboard sees the real client IP (must match the TCP source IP).
 trust_proxy: false
-
-# Only send the session cookie over TLS. Set true in production.
 session_cookie_secure: false
 
-# JSON Lines audit log: login, activate/extend/deactivate, and TCP
-# connection accept/reject events. Unset to disable file logging
-# (ring buffer stays available in the web UI).
+# Audit
 audit_log_path: "logs/audit.log"
+audit_rotation: "weekly"   # weekly | daily | off
 
-# Rotation: "weekly" (default, Monday 00:00 UTC), "daily", or "off".
-# Rotated files are gzipped as audit-YYYY-MM-DD.log.gz and kept forever.
-audit_rotation: "weekly"
+# ---- WireGuard gateway --------------------------------------------------
+
+# UDP endpoint the client will connect to. For local Docker testing this is
+# your host's IP (e.g. "192.168.1.42:51820"); for production it's your
+# gateway's public hostname.
+wg_endpoint: "127.0.0.1:51820"
+
+# Interface name + address space the gateway exposes to peers.
+wg_interface: "wg0"
+wg_network: "10.77.0.0/24"
+wg_listen_port: 51820
+
+# Network interface used for egress to the real services. Inside the Docker
+# container this is typically eth0.
+egress_interface: "eth0"
+
+# Directory that persists server keys + per-user WG identity assignments.
+state_dir: "state"
+
+# Optional DNS pushed to clients. Comment out to leave the client's DNS alone
+# (recommended for selective tunneling — you want only service traffic in the
+# tunnel, not DNS).
+# wg_client_dns: "1.1.1.1"
+
+# Set false for non-root local development (skips `ip` / `wg` / `iptables`
+# calls so the web UI still boots). Must be true in the Docker container.
+enable_netfilter: true
+
+# ---- Users --------------------------------------------------------------
 
 users:
   admin:
     password_hash: "$2b$12$34SQxalxN24WEkcqtIDH8.Lf4me3F9L/gTtX1gh/UNRQWnD81MrIC"  # "admin"
 
-# Each service binds one TCP port and forwards to the target once the
-# client's IP has been whitelisted via the web UI.
-services:
-  - name: postgres
-    listen: "0.0.0.0:5432"
-    target: "postgres:5432"
+# ---- Services -----------------------------------------------------------
+#
+# Each service's `hostname` is resolved at startup (and refreshed every
+# 5 minutes). Activating a service installs an iptables FORWARD rule scoped
+# to the user's WG IP and the service's resolved IPs + optional port.
+#
+# Use `cidrs` to pin explicit IPs (no DNS) or to add static ranges.
+# `protocol` defaults to tcp; `port` is optional (omit to allow any port).
 
-  - name: web-target
-    listen: "0.0.0.0:8888"
-    target: "nginx:80"
+# Omit `port:` to allow any TCP port to the resolved IP (simpler for local
+# testing). In production, pin it — e.g. `port: 22` / `443` / `5432`.
+services:
+  - name: ssh
+    hostname: "ssh.wepublish.cloud"
+
+  - name: openshift-console
+    hostname: "console-openshift-console.apps.os.wepublish.cloud"
+
+  - name: postgres01
+    hostname: "postgres01.wepublish.cloud"

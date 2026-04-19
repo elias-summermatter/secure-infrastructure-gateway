@@ -10,3 +10,5 @@ config.yaml
 Dockerfile
 docker-compose.yml
 README.md
+logs
+state

@@ -5,10 +5,11 @@ from functools import wraps
 
 import bcrypt
 import yaml
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import (Flask, Response, jsonify, redirect, render_template,
+                   request, session, url_for)
 
 from audit import AuditLog
-from proxy import ProxyManager
+from gateway import Gateway
 
 
 def load_config(path: str) -> dict:
@@ -29,12 +30,13 @@ def create_app(config: dict) -> Flask:
 
     users = config.get("users", {})
     audit = AuditLog(config.get("audit_log_path"))
-    rotation = config.get("audit_rotation", "weekly")  # "weekly" | "daily" | "off"
+    rotation = config.get("audit_rotation", "weekly")
     if rotation in ("weekly", "daily"):
         audit.start_rotation(weekly=(rotation == "weekly"))
-    proxy = ProxyManager(config.get("services", []), audit=audit)
-    proxy.start()
-    app.config["proxy"] = proxy
+
+    gateway = Gateway(config, audit=audit)
+    gateway.start()
+    app.config["gateway"] = gateway
     app.config["audit"] = audit
 
     def login_required(f):
@@ -72,47 +74,82 @@ def create_app(config: dict) -> Flask:
     @app.route("/")
     @login_required
     def dashboard():
+        u = session["user"]
         return render_template(
             "dashboard.html",
-            user=session["user"],
-            ip=request.remote_addr,
-            services=list(proxy.services.values()),
+            user=u,
+            wg_ip=gateway.user_ip(u),
+            has_config=gateway.user_has_config(u),
+            services=list(gateway.services.values()),
+            endpoint=gateway.endpoint,
         )
 
     @app.route("/api/status")
     @login_required
     def api_status():
-        ip = request.remote_addr
-        return jsonify({"ip": ip, "grants": proxy.status_for_ip(ip)})
+        u = session["user"]
+        return jsonify({
+            "user": u,
+            "wg_ip": gateway.user_ip(u),
+            "has_config": gateway.user_has_config(u),
+            "grants": gateway.status_for_user(u),
+        })
+
+    @app.route("/wg-config", methods=["POST"])
+    @login_required
+    def wg_config():
+        u = session["user"]
+        cfg_text, ip = gateway.register_user(u)
+        filename = f"sig-{u}.conf"
+        return Response(
+            cfg_text,
+            mimetype="text/plain",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     @app.route("/api/activate/<name>", methods=["POST"])
     @login_required
     def api_activate(name: str):
-        if name not in proxy.services:
+        u = session["user"]
+        if name not in gateway.services:
             return jsonify({"error": "unknown service"}), 404
-        ip = request.remote_addr
-        exp = proxy.activate(name, ip, user=session["user"])
-        audit.record("activate", user=session["user"], ip=ip, service=name, expires_at=exp)
+        if not gateway.user_has_config(u):
+            return jsonify({"error": "generate a WireGuard config first"}), 400
+        try:
+            exp = gateway.activate(u, name)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+        audit.record("activate", user=u, ip=gateway.user_ip(u),
+                     service=name, expires_at=exp)
         return jsonify({"service": name, "expires_at": exp})
 
     @app.route("/api/extend/<name>", methods=["POST"])
     @login_required
     def api_extend(name: str):
-        if name not in proxy.services:
+        u = session["user"]
+        if name not in gateway.services:
             return jsonify({"error": "unknown service"}), 404
-        ip = request.remote_addr
-        exp = proxy.extend(name, ip, user=session["user"])
-        audit.record("extend", user=session["user"], ip=ip, service=name, expires_at=exp)
+        if not gateway.user_has_config(u):
+            return jsonify({"error": "generate a WireGuard config first"}), 400
+        try:
+            exp = gateway.extend(u, name)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+        audit.record("extend", user=u, ip=gateway.user_ip(u),
+                     service=name, expires_at=exp)
         return jsonify({"service": name, "expires_at": exp})
 
     @app.route("/api/deactivate/<name>", methods=["POST"])
     @login_required
     def api_deactivate(name: str):
-        if name not in proxy.services:
+        u = session["user"]
+        if name not in gateway.services:
             return jsonify({"error": "unknown service"}), 404
-        ip = request.remote_addr
-        proxy.deactivate(name, ip)
-        audit.record("deactivate", user=session["user"], ip=ip, service=name)
+        gateway.deactivate(u, name)
+        audit.record("deactivate", user=u, ip=gateway.user_ip(u), service=name)
         return jsonify({"service": name})
 
     @app.route("/api/audit")

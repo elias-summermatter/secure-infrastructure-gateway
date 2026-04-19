@@ -3,73 +3,100 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Dashboard — Auth TCP Proxy</title>
+  <title>Secure Infrastructure Gateway</title>
   <style>
     :root { color-scheme: dark; }
     body { font-family: system-ui, -apple-system, sans-serif; background: #1e1e2e; color: #cdd6f4; margin: 0; padding: 2rem; max-width: 1100px; margin: 0 auto; }
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
     h1 { margin: 0 0 0.25rem 0; font-size: 1.5rem; }
+    h2 { margin: 2.5rem 0 0.75rem 0; font-size: 1.1rem; color: #cdd6f4; }
     .meta { color: #a6adc8; font-size: 0.9rem; }
-    .ip { font-family: ui-monospace, monospace; background: #313244; padding: 0.2rem 0.5rem; border-radius: 4px; color: #cdd6f4; }
+    .ip, .target { font-family: ui-monospace, monospace; background: #313244; padding: 0.2rem 0.5rem; border-radius: 4px; color: #cdd6f4; font-size: 0.85rem; }
+    .target { color: #a6adc8; background: transparent; padding: 0; }
+
+    .card { background: #313244; border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; }
+    .card h3 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+    .card p { margin: 0 0 0.75rem 0; color: #a6adc8; font-size: 0.9rem; }
+
     table { width: 100%; border-collapse: collapse; background: #313244; border-radius: 8px; overflow: hidden; }
     th, td { text-align: left; padding: 0.85rem 1rem; border-bottom: 1px solid #45475a; vertical-align: middle; }
     tr:last-child td { border-bottom: 0; }
     th { color: #a6adc8; font-weight: 500; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; background: #292c3c; }
-    .target { color: #a6adc8; font-family: ui-monospace, monospace; font-size: 0.85rem; }
     .status-inactive { color: #6c7086; }
     .status-active { color: #a6e3a1; font-weight: 600; }
     .countdown { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
     button { padding: 0.45rem 0.9rem; margin-right: 0.25rem; border: 0; border-radius: 5px; cursor: pointer; font-weight: 500; font-size: 0.9rem; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-primary { background: #89b4fa; color: #1e1e2e; }
     .btn-primary:hover:not(:disabled) { background: #74c7ec; }
     .btn-secondary { background: #45475a; color: #cdd6f4; }
-    .btn-secondary:hover:not(:disabled) { background: #585b70; }
     .btn-danger { background: #f38ba8; color: #1e1e2e; }
     .btn-danger:hover:not(:disabled) { background: #eba0ac; }
     .logout { background: transparent; color: #a6adc8; border: 1px solid #45475a; padding: 0.5rem 1rem; }
     .logout:hover { background: #313244; color: #cdd6f4; }
     .hint { color: #6c7086; font-size: 0.85rem; margin-top: 1.5rem; }
-    .max-indicator { color: #6c7086; font-size: 0.8rem; margin-left: 0.5rem; }
-    h2 { margin: 2.5rem 0 0.75rem 0; font-size: 1.1rem; color: #cdd6f4; }
+
+    /* Audit panel */
     .audit { background: #313244; border-radius: 8px; overflow: hidden; font-size: 0.85rem; }
-    .audit table { background: transparent; }
     .audit td { padding: 0.55rem 1rem; vertical-align: top; }
     .audit .ts { color: #a6adc8; font-family: ui-monospace, monospace; white-space: nowrap; }
     .audit .evt { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap; }
-    .audit .evt-login, .audit .evt-activate, .audit .evt-extend, .audit .evt-connection_opened { color: #a6e3a1; }
-    .audit .evt-login_failed, .audit .evt-connection_rejected, .audit .evt-connection_error { color: #f38ba8; }
-    .audit .evt-deactivate, .audit .evt-logout, .audit .evt-connection_closed { color: #fab387; }
+    .audit .evt-login, .audit .evt-activate, .audit .evt-extend, .audit .evt-wg_config_generated { color: #a6e3a1; }
+    .audit .evt-login_failed { color: #f38ba8; }
+    .audit .evt-deactivate, .audit .evt-logout, .audit .evt-grant_expired { color: #fab387; }
     .audit .who { color: #89b4fa; }
     .audit .svc { color: #f9e2af; }
     .audit .ip-cell { color: #a6adc8; font-family: ui-monospace, monospace; }
     .audit .empty { color: #6c7086; padding: 1rem; text-align: center; }
-    .audit .granted-by { color: #cba6f7; font-size: 0.8rem; }
     .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.75rem 0; }
     .filters input, .filters select { background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 5px; padding: 0.4rem 0.6rem; font-size: 0.85rem; font-family: inherit; }
     .filters input:focus, .filters select:focus { outline: none; border-color: #89b4fa; }
-    .filters label { color: #a6adc8; font-size: 0.8rem; }
     .filters .clear { background: transparent; color: #a6adc8; border: 1px solid #45475a; padding: 0.4rem 0.75rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem; }
     .filters .clear:hover { background: #313244; color: #cdd6f4; }
     .filters .count { color: #6c7086; font-size: 0.8rem; margin-left: auto; }
   </style>
 </head>
-<body>
+<body data-has-config="{{ 'true' if has_config else 'false' }}">
   <header>
     <div>
-      <h1>Auth TCP Proxy</h1>
-      <div class="meta">Signed in as <strong>{{ user }}</strong> · IP <span class="ip">{{ ip }}</span></div>
+      <h1>Secure Infrastructure Gateway</h1>
+      <div class="meta">
+        Signed in as <strong>{{ user }}</strong>
+        {% if wg_ip %} · WG IP <span class="ip">{{ wg_ip }}</span>{% endif %}
+        · Endpoint <span class="ip">{{ endpoint }}</span>
+      </div>
     </div>
     <form method="post" action="{{ url_for('logout') }}">
       <button class="logout" type="submit">Sign out</button>
     </form>
   </header>
 
+  <div class="card" id="config-card">
+    <h3>WireGuard configuration</h3>
+    <p id="config-blurb">
+      {% if has_config %}
+        A peer is registered for you on the gateway. You can re-download a
+        fresh config at any time — doing so rotates your keys and invalidates
+        the previous config immediately.
+      {% else %}
+        You don't have a WireGuard config yet. Generate one to register a peer
+        on the gateway. The private key is only shown once at download time.
+      {% endif %}
+    </p>
+    <form method="post" action="{{ url_for('wg_config') }}">
+      <button class="btn-primary" type="submit">
+        {{ "Rotate &amp; download config" | safe if has_config else "Generate &amp; download config" | safe }}
+      </button>
+    </form>
+  </div>
+
+  <h2>Services</h2>
   <table>
     <thead>
       <tr>
         <th>Service</th>
-        <th>Target</th>
+        <th>Destination</th>
         <th>Status</th>
         <th style="text-align:right">Actions</th>
       </tr>
@@ -77,11 +104,12 @@
     <tbody id="rows">
       {% for svc in services %}
       <tr data-name="{{ svc.name }}">
-        <td>
-          <strong>{{ svc.name }}</strong>
-          <div class="target">{{ svc.listen_host }}:{{ svc.listen_port }}</div>
+        <td><strong>{{ svc.name }}</strong></td>
+        <td class="target">
+          {% if svc.hostname %}{{ svc.hostname }}{% endif %}
+          {% if svc.port %}:{{ svc.port }}{% endif %}
+          {% if svc.protocol and svc.protocol != 'tcp' %} ({{ svc.protocol }}){% endif %}
         </td>
-        <td class="target">{{ svc.target_host }}:{{ svc.target_port }}</td>
         <td class="status"><span class="status-inactive">—</span></td>
         <td class="actions" style="text-align:right"></td>
       </tr>
@@ -90,8 +118,9 @@
   </table>
 
   <div class="hint">
-    Activate grants your IP access for 1h. Extend adds 1h, capped at 8h remaining.
-    You can keep extending as time passes — there is no hard lifetime limit.
+    Activate routes your WireGuard IP to that destination for 1h. Extend adds
+    1h, capped at 8h remaining. Expired grants are torn down automatically —
+    if all your grants expire, your tunnel exists but cannot reach any service.
   </div>
 
   <h2>Audit log</h2>
@@ -100,15 +129,14 @@
       <option value="">all events</option>
       <option value="auth">auth (login/logout)</option>
       <option value="grant">grants (activate/extend/deactivate)</option>
-      <option value="connection">connections</option>
-      <option value="error">errors &amp; rejects</option>
+      <option value="error">errors</option>
     </select>
     <select id="f-service">
       <option value="">all services</option>
       {% for svc in services %}<option value="{{ svc.name }}">{{ svc.name }}</option>{% endfor %}
     </select>
     <input id="f-user" placeholder="user">
-    <input id="f-ip" placeholder="IP">
+    <input id="f-ip" placeholder="WG IP">
     <button class="clear" id="f-clear" type="button">Clear</button>
     <span class="count" id="f-count"></span>
     <button class="clear" id="f-prev" type="button" disabled>← Prev</button>
@@ -134,6 +162,11 @@
 <script>
 const MAX_SECONDS = 8 * 3600;
 let grants = {};
+let hasConfig = document.body.dataset.hasConfig === 'true';
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 function fmt(sec) {
   if (sec <= 0) return "expired";
@@ -149,6 +182,7 @@ async function refresh() {
     if (r.status === 401) { window.location = '/login'; return; }
     const data = await r.json();
     grants = data.grants || {};
+    hasConfig = !!data.has_config;
   } catch (e) { /* network hiccup, keep last state */ }
   render();
 }
@@ -170,7 +204,8 @@ function render() {
       `;
     } else {
       statusCell.innerHTML = `<span class="status-inactive">inactive</span>`;
-      actionsCell.innerHTML = `<button class="btn-primary" data-action="activate" data-name="${name}">Activate</button>`;
+      const label = hasConfig ? 'Activate' : 'Generate config first';
+      actionsCell.innerHTML = `<button class="btn-primary" ${hasConfig ? '' : 'disabled'} data-action="activate" data-name="${name}">${label}</button>`;
     }
   });
 }
@@ -190,9 +225,7 @@ document.getElementById('rows').addEventListener('click', async (ev) => {
   }
 });
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
+// --- audit panel --------------------------------------------------------
 
 const PAGE_SIZE = 50;
 let auditOffset = 0;
@@ -204,14 +237,8 @@ function fmtAuditDetail(e) {
     const d = new Date(e.expires_at * 1000);
     parts.push(`until ${d.toLocaleTimeString()}`);
   }
-  if (e.granted_by) parts.push(`granted by ${e.granted_by}`);
   if (e.error) parts.push(`error: ${e.error}`);
   return parts.join(' · ');
-}
-
-function actorFor(e) {
-  if (e.event && e.event.startsWith('connection_')) return e.granted_by || null;
-  return e.user || null;
 }
 
 function currentFilters() {
@@ -228,7 +255,6 @@ async function refreshAudit(resetPage = false) {
   const f = currentFilters();
   const params = new URLSearchParams({ offset: auditOffset, limit: PAGE_SIZE });
   for (const [k, v] of Object.entries(f)) if (v) params.set(k, v);
-
   try {
     const r = await fetch('/api/audit?' + params, { credentials: 'same-origin' });
     if (r.status === 401) { window.location = '/login'; return; }
@@ -246,23 +272,16 @@ function renderAudit(events) {
     auditTotal ? `${start}–${end} of ${auditTotal}` : '0 events';
   document.getElementById('f-prev').disabled = auditOffset === 0;
   document.getElementById('f-next').disabled = end >= auditTotal;
-
   if (!events.length) {
     rows.innerHTML = '<tr><td class="empty" colspan="5">no matching events</td></tr>';
     return;
   }
   rows.innerHTML = events.map(e => {
     const ts = e.ts.replace('T', ' ').replace('Z', '');
-    const isConn = e.event && e.event.startsWith('connection_');
-    const actor = actorFor(e);
-    const userCell = actor
-      ? `<span class="who">${escapeHtml(actor)}</span>` +
-        (isConn ? ' <span class="granted-by">(granted)</span>' : '')
-      : '—';
     return `<tr>
       <td class="ts">${escapeHtml(ts)}</td>
       <td class="evt evt-${escapeHtml(e.event)}">${escapeHtml(e.event)}</td>
-      <td>${userCell}</td>
+      <td><span class="who">${escapeHtml(e.user || '—')}</span></td>
       <td class="ip-cell">${escapeHtml(e.ip || '—')}</td>
       <td class="svc">${escapeHtml(e.service || '')} <span style="color:#6c7086">${escapeHtml(fmtAuditDetail(e))}</span></td>
     </tr>`;
@@ -293,8 +312,6 @@ refresh();
 refreshAudit(true);
 setInterval(render, 1000);
 setInterval(refresh, 10000);
-// Only auto-refresh the audit view when on the first page; otherwise the user
-// is browsing history and we don't want rows shifting under them.
 setInterval(() => { if (auditOffset === 0) refreshAudit(false); }, 5000);
 </script>
 </body>
