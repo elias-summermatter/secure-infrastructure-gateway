@@ -55,7 +55,8 @@ class Service:
 class Grant:
     user: str
     service: str
-    user_ip: str          # the user's WG /32
+    user_ip: str          # the user's WG /32 (gateway-side identity)
+    source_ip: Optional[str]  # client's real IP at activation time (for audit)
     expires_at: float
     rules: list[list[str]] = field(default_factory=list)  # iptables rule specs installed
 
@@ -275,7 +276,6 @@ class Gateway:
             preshared_key_b64=psk,
             dns=self.client_dns,
         )
-        self.audit.record("wg_config_generated", user=username, ip=ip)
         return cfg, ip
 
     def user_ip(self, username: str) -> Optional[str]:
@@ -362,7 +362,8 @@ class Gateway:
             # conntrack -D exits 0 if entries were deleted, 1 if none matched.
             _run(cmd, check=False, capture=True)
 
-    def activate(self, user: str, service_name: str) -> float:
+    def activate(self, user: str, service_name: str,
+                 source_ip: Optional[str] = None) -> float:
         svc = self.services.get(service_name)
         if svc is None:
             raise KeyError(service_name)
@@ -381,11 +382,12 @@ class Gateway:
             rules = self._build_rules(user_ip, svc)
             self._apply_rules(rules)
             self.grants[key] = Grant(user=user, service=service_name,
-                                     user_ip=user_ip, expires_at=expires,
-                                     rules=rules)
+                                     user_ip=user_ip, source_ip=source_ip,
+                                     expires_at=expires, rules=rules)
         return expires
 
-    def extend(self, user: str, service_name: str) -> float:
+    def extend(self, user: str, service_name: str,
+               source_ip: Optional[str] = None) -> float:
         u = self.users.get(user)
         if u is None:
             raise RuntimeError("user has no WG config; generate one first")
@@ -396,23 +398,20 @@ class Gateway:
         key = (user, service_name)
         with self._lock:
             g = self.grants.get(key)
-            if g is None or g.expires_at <= now:
-                # Not active — activate fresh
-                pass
-            # Compute new expiry
             current = g.expires_at if (g and g.expires_at > now) else now
             expires = min(current + EXTEND_STEP, now + MAX_DURATION)
             if g is None or g.expires_at <= now:
-                # (Re)install rules; handles expired-but-still-in-dict case
                 if g:
                     self._apply_rules(g.rules, delete=True)
                 rules = self._build_rules(u["ip"], svc)
                 self._apply_rules(rules)
                 self.grants[key] = Grant(user=user, service=service_name,
-                                         user_ip=u["ip"], expires_at=expires,
-                                         rules=rules)
+                                         user_ip=u["ip"], source_ip=source_ip,
+                                         expires_at=expires, rules=rules)
             else:
                 g.expires_at = expires
+                if source_ip:
+                    g.source_ip = source_ip
         return expires
 
     def deactivate(self, user: str, service_name: str) -> None:
@@ -459,4 +458,5 @@ class Gateway:
                     self._drop_conntrack(g.user_ip, svc)
         for (user, service), g in expired:
             log.info("reaped grant user=%s service=%s", user, service)
-            self.audit.record("grant_expired", user=user, service=service, ip=g.user_ip)
+            self.audit.record("grant_expired", user=user, service=service,
+                              ip=g.source_ip, wg_ip=g.user_ip)

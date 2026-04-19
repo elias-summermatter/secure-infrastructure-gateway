@@ -99,7 +99,9 @@ def create_app(config: dict) -> Flask:
     @login_required
     def wg_config():
         u = session["user"]
-        cfg_text, ip = gateway.register_user(u)
+        cfg_text, wg_ip = gateway.register_user(u)
+        audit.record("wg_config_generated", user=u, ip=request.remote_addr,
+                     wg_ip=wg_ip)
         filename = f"sig-{u}.conf"
         return Response(
             cfg_text,
@@ -114,32 +116,34 @@ def create_app(config: dict) -> Flask:
     @login_required
     def api_activate(name: str):
         u = session["user"]
+        src = request.remote_addr
         if name not in gateway.services:
             return jsonify({"error": "unknown service"}), 404
         if not gateway.user_has_config(u):
             return jsonify({"error": "generate a WireGuard config first"}), 400
         try:
-            exp = gateway.activate(u, name)
+            exp = gateway.activate(u, name, source_ip=src)
         except Exception as e:
             return jsonify({"error": str(e)}), 400
-        audit.record("activate", user=u, ip=gateway.user_ip(u),
-                     service=name, expires_at=exp)
+        audit.record("activate", user=u, ip=src, service=name,
+                     expires_at=exp, wg_ip=gateway.user_ip(u))
         return jsonify({"service": name, "expires_at": exp})
 
     @app.route("/api/extend/<name>", methods=["POST"])
     @login_required
     def api_extend(name: str):
         u = session["user"]
+        src = request.remote_addr
         if name not in gateway.services:
             return jsonify({"error": "unknown service"}), 404
         if not gateway.user_has_config(u):
             return jsonify({"error": "generate a WireGuard config first"}), 400
         try:
-            exp = gateway.extend(u, name)
+            exp = gateway.extend(u, name, source_ip=src)
         except Exception as e:
             return jsonify({"error": str(e)}), 400
-        audit.record("extend", user=u, ip=gateway.user_ip(u),
-                     service=name, expires_at=exp)
+        audit.record("extend", user=u, ip=src, service=name,
+                     expires_at=exp, wg_ip=gateway.user_ip(u))
         return jsonify({"service": name, "expires_at": exp})
 
     @app.route("/api/deactivate/<name>", methods=["POST"])
@@ -149,7 +153,8 @@ def create_app(config: dict) -> Flask:
         if name not in gateway.services:
             return jsonify({"error": "unknown service"}), 404
         gateway.deactivate(u, name)
-        audit.record("deactivate", user=u, ip=gateway.user_ip(u), service=name)
+        audit.record("deactivate", user=u, ip=request.remote_addr,
+                     service=name, wg_ip=gateway.user_ip(u))
         return jsonify({"service": name})
 
     @app.route("/api/audit")
