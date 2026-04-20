@@ -14,6 +14,7 @@ fi
 # owns the WG interface / iptables rules. Multiple workers would race. Use
 # threads for concurrency within that one worker.
 exec gunicorn \
+  --config /app/gunicorn.conf.py \
   --bind 0.0.0.0:8080 \
   --workers 1 \
   --threads 8 \

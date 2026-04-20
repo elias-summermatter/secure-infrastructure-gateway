@@ -20,7 +20,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY app.py wsgi.py gateway.py wg.py audit.py hash_password.py entrypoint.sh ./
+COPY app.py wsgi.py gateway.py wg.py audit.py hash_password.py entrypoint.sh gunicorn.conf.py ./
 COPY templates ./templates
 COPY static ./static
 RUN chmod +x /app/entrypoint.sh
