@@ -504,14 +504,23 @@ def create_app(config: dict) -> Flask:
     def api_status():
         u = session["user"]
         user_state = gateway.users.get(u, {})
+        user_grants = gateway.status_for_user(u)
+        # Only reveal the mesh member list to users who are themselves in
+        # the mesh — prevents non-members from enumerating peers.
+        user_in_mesh = any(
+            gateway.services.get(name) and gateway.services[name].kind == "mesh"
+            for name in user_grants
+        )
+        mesh_peers = gateway.list_mesh_peers() if user_in_mesh else []
         return jsonify({
             "user": u,
             "wg_ip": gateway.user_ip(u),
             "has_config": gateway.user_has_config(u),
-            "grants": gateway.status_for_user(u),
+            "grants": user_grants,
             "blocked": list(user_state.get("blocked_services", [])),
             "approved": list(user_state.get("approved_services", [])),
             "service_health": gateway.service_health_snapshot(),
+            "mesh_peers": mesh_peers,
         })
 
     @app.route("/wg-config", methods=["POST"])

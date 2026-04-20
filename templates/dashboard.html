@@ -75,6 +75,7 @@
     .chip-blocked { background: rgba(243, 139, 168, 0.15); color: #f38ba8; }
     .chip-approved { background: rgba(203, 166, 247, 0.15); color: #cba6f7; }
 
+    .mesh-badge { display: inline-block; padding: 0.12rem 0.5rem; border-radius: 10px; font-size: 0.72rem; margin-left: 0.35rem; font-weight: 500; vertical-align: middle; font-family: ui-monospace, monospace; background: rgba(203, 166, 247, 0.15); color: #cba6f7; }
     .health-chip { display: inline-block; padding: 0.12rem 0.5rem; border-radius: 10px; font-size: 0.72rem; margin-left: 0.35rem; font-weight: 500; vertical-align: middle; font-family: ui-monospace, monospace; }
     .health-reachable { background: rgba(166, 227, 161, 0.15); color: #a6e3a1; }
     .health-down { background: rgba(108, 112, 134, 0.25); color: #a6adc8; }
@@ -186,12 +187,16 @@
     </thead>
     <tbody id="rows">
       {% for svc in services %}
-      <tr data-name="{{ svc.name }}" data-requires-approval="{{ 'true' if svc.requires_approval else 'false' }}">
-        <td><strong>{{ svc.name }}</strong><span class="health-cell"></span></td>
+      <tr data-name="{{ svc.name }}" data-kind="{{ svc.kind }}" data-requires-approval="{{ 'true' if svc.requires_approval else 'false' }}">
+        <td><strong>{{ svc.name }}</strong>{% if svc.kind == 'mesh' %} <span class="mesh-badge" title="Peer-to-peer network: while active you can reach other members directly">peer network</span>{% endif %}<span class="health-cell"></span></td>
         <td class="target">
-          {% if svc.hostname %}{{ svc.hostname }}{% endif %}
-          {% if svc.port %}:{{ svc.port }}{% endif %}
-          {% if svc.protocol and svc.protocol != 'tcp' %} ({{ svc.protocol }}){% endif %}
+          {% if svc.kind == 'mesh' %}
+            <em style="color:#a6adc8">other active peers (opt-in)</em>
+          {% else %}
+            {% if svc.hostname %}{{ svc.hostname }}{% endif %}
+            {% if svc.port %}:{{ svc.port }}{% endif %}
+            {% if svc.protocol and svc.protocol != 'tcp' %} ({{ svc.protocol }}){% endif %}
+          {% endif %}
         </td>
         <td class="status"><span class="status-inactive">—</span></td>
         <td class="actions" style="text-align:right"></td>
@@ -204,6 +209,54 @@
     Activate routes your WireGuard IP to that destination for 1h. Extend adds
     1h, capped at 8h remaining. Expired grants are torn down automatically —
     if all your grants expire, your tunnel exists but cannot reach any service.
+  </div>
+
+  <!-- Shared-network (mesh) activation confirmation. Non-modal activations
+       for normal services skip this dialog. -->
+  <div id="mesh-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mesh-modal-title">
+    <div class="modal-box">
+      <h3 id="mesh-modal-title">Join the shared network?</h3>
+      <div class="modal-warn" style="background:rgba(203,166,247,0.12);border-left-color:#cba6f7">
+        While active, <strong>every other member can reach your machine directly</strong>
+        over the WireGuard tunnel using your WG IP. They will see your username
+        and WG IP in their peer list, same as you will see theirs.
+      </div>
+      <ul class="modal-rules">
+        <li><strong>The channel itself is secure</strong> — all traffic stays inside the
+            WireGuard tunnel (end-to-end encrypted, post-quantum-hedged PSK).
+            Nothing leaves the gateway, and clients outside the network cannot see it.</li>
+        <li><strong>But your machine is exposed to the other members.</strong>
+            If you're running an SSH / SMB / HTTP service that only listens on
+            your WG interface, every active peer can try it. Host-firewall
+            accordingly, or bind services to loopback only.</li>
+        <li>Activations last 1 h and can be extended up to 8 h, like any
+            other service. When your grant expires you drop out of the
+            network and in-flight connections to peers are cut.</li>
+        <li>Your admin can see and revoke your participation at any time.</li>
+      </ul>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="mesh-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="mesh-confirm">I understand — join</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mesh-peers-section" hidden>
+    <h2>Shared network peers</h2>
+    <p class="meta" style="color:#a6adc8;font-size:0.9rem;margin:0 0 0.75rem 0">
+      You are currently in the shared network. Every user below can reach your
+      WG IP directly until your grant expires, and you can reach theirs.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>WG IP</th>
+          <th>Grant ends</th>
+        </tr>
+      </thead>
+      <tbody id="mesh-peers-rows"></tbody>
+    </table>
   </div>
 
   {% if is_admin %}
@@ -276,6 +329,7 @@ let grants = {};
 let blockedForMe = new Set();
 let approvedForMe = new Set();
 let serviceHealth = {};
+let meshPeers = [];
 let hasConfig = document.body.dataset.hasConfig === 'true';
 const isAdmin = document.body.dataset.isAdmin === 'true';
 const currentUser = {{ user | tojson }};
@@ -350,6 +404,7 @@ async function refresh() {
     blockedForMe = new Set(data.blocked || []);
     approvedForMe = new Set(data.approved || []);
     serviceHealth = data.service_health || {};
+    meshPeers = data.mesh_peers || [];
   } catch (e) { /* network hiccup, keep last state */ }
   render();
 }
@@ -375,6 +430,7 @@ function renderHealthChips(name) {
 }
 
 function render() {
+  renderMeshPeers();
   const now = Date.now() / 1000;
   document.querySelectorAll('tr[data-name]').forEach(tr => {
     const name = tr.dataset.name;
@@ -411,6 +467,14 @@ function render() {
 document.getElementById('rows').addEventListener('click', async (ev) => {
   const btn = ev.target.closest('button[data-action]');
   if (!btn) return;
+  const tr = btn.closest('tr[data-name]');
+  // Activating a mesh service (peer-to-peer shared network) triggers a
+  // warning modal first; Extend / Deactivate go through directly because
+  // the user is already in the mesh and knows what they joined.
+  if (btn.dataset.action === 'activate' && tr && tr.dataset.kind === 'mesh') {
+    showMeshModal(btn.dataset.name);
+    return;
+  }
   btn.disabled = true;
   try {
     const r = await fetch(`/api/${btn.dataset.action}/${encodeURIComponent(btn.dataset.name)}`, {
@@ -422,6 +486,56 @@ document.getElementById('rows').addEventListener('click', async (ev) => {
     await refresh();
   }
 });
+
+// --- shared-network (mesh) modal + peer list ---------------------------
+(() => {
+  const modal = document.getElementById('mesh-modal');
+  const cancelBtn = document.getElementById('mesh-cancel');
+  const confirmBtn = document.getElementById('mesh-confirm');
+  let pendingService = null;
+  function hide() { modal.classList.add('hidden'); pendingService = null; }
+  window.showMeshModal = (svcName) => {
+    pendingService = svcName;
+    modal.classList.remove('hidden');
+  };
+  cancelBtn.addEventListener('click', hide);
+  modal.addEventListener('click', (e) => { if (e.target === modal) hide(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) hide();
+  });
+  confirmBtn.addEventListener('click', async () => {
+    if (!pendingService) return hide();
+    const name = pendingService;
+    hide();
+    await fetch(`/api/activate/${encodeURIComponent(name)}`, {
+      method: 'POST', credentials: 'same-origin',
+    });
+    await refresh();
+  });
+})();
+
+function renderMeshPeers() {
+  const section = document.getElementById('mesh-peers-section');
+  const tbody = document.getElementById('mesh-peers-rows');
+  if (!section || !tbody) return;
+  if (!meshPeers.length) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const now = Date.now() / 1000;
+  tbody.innerHTML = meshPeers.map(p => {
+    const ends = p.expires_at
+      ? `${FMT_CLOCK.format(new Date(p.expires_at * 1000))} (in ${fmt(Math.max(0, p.expires_at - now))})`
+      : '—';
+    const isSelf = p.username === currentUser;
+    return `<tr class="${isSelf ? 'self-row' : ''}">
+      <td><strong>${escapeHtml(p.username)}</strong>${isSelf ? ' <span style="color:#6c7086;font-size:0.8rem">(you)</span>' : ''}</td>
+      <td class="ip">${escapeHtml(p.wg_ip)}</td>
+      <td class="countdown">${escapeHtml(ends)}</td>
+    </tr>`;
+  }).join('');
+}
 
 // --- users panel (admin only) ------------------------------------------
 

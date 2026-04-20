@@ -33,6 +33,7 @@ DEFAULT_DURATION = 3600
 MAX_DURATION = 8 * 3600
 EXTEND_STEP = 3600
 IPTABLES_CHAIN = "SIG_FORWARD"
+MESH_CHAIN = "SIG_MESH"         # pair-wise ACCEPTs for the shared-network service
 RESOLVE_INTERVAL = 300  # re-resolve service hostnames every 5min
 REAP_INTERVAL = 10
 LOCAL_CHECK_INTERVAL = 300          # 5min TCP reachability probe from the gateway
@@ -73,6 +74,11 @@ class Service:
     # an admin has explicitly called approve_service for them. Block still
     # takes precedence over approval.
     requires_approval: bool = False
+    # kind=="external" is the normal service flavor (route user → real host).
+    # kind=="mesh" turns the "service" into an opt-in peer-to-peer network:
+    # anyone with an active grant can reach every other active peer directly
+    # over the WG tunnel. Uses the same grant/countdown/extend semantics.
+    kind: str = "external"
 
 
 @dataclass
@@ -124,8 +130,22 @@ class Gateway:
                 port=s.get("port"),
                 protocol=s.get("protocol", "tcp"),
                 requires_approval=bool(s.get("requires_approval", False)),
+                kind=s.get("kind", "external"),
             )
             self.services[svc.name] = svc
+
+        # Auto-inject the shared-network mesh service unless disabled. Appears
+        # in the services list like any other — same activation flow, same
+        # grant/countdown/extend mechanics, same admin block/approve controls.
+        sn_cfg = config.get("shared_network") or {}
+        if sn_cfg.get("enabled", True):
+            sn_name = sn_cfg.get("name", "shared-network")
+            if sn_name not in self.services:
+                self.services[sn_name] = Service(
+                    name=sn_name,
+                    kind="mesh",
+                    requires_approval=bool(sn_cfg.get("requires_approval", False)),
+                )
 
         # users: username -> {"public_key": str, "ip": str, "created_at": float}
         self.users: dict[str, dict] = {}
@@ -246,6 +266,12 @@ class Gateway:
         # Custom chain so we can flush ours without trashing the rest of FORWARD.
         _run(["iptables", "-N", IPTABLES_CHAIN], check=False, capture=True)
         _run(["iptables", "-F", IPTABLES_CHAIN])
+        # Mesh sub-chain for opt-in peer-to-peer traffic (shared-network
+        # service). Empty by default; rebuilt in full every time membership
+        # changes. Lives above the DROP so pairwise ACCEPTs get a chance
+        # before the default-deny.
+        _run(["iptables", "-N", MESH_CHAIN], check=False, capture=True)
+        _run(["iptables", "-F", MESH_CHAIN])
 
         # Jump into our chain for both directions of WG traffic:
         #   -i wg0 = new connections from clients going out to targets
@@ -259,6 +285,10 @@ class Gateway:
 
         _run(["iptables", "-A", IPTABLES_CHAIN,
               "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+        # Mesh ACCEPTs sit here: if the packet matches an active mesh pair
+        # the sub-chain accepts it, otherwise control returns and the DROP
+        # below catches it.
+        _run(["iptables", "-A", IPTABLES_CHAIN, "-j", MESH_CHAIN])
         # Final deny — per-grant ACCEPTs get inserted above this.
         _run(["iptables", "-A", IPTABLES_CHAIN, "-j", "DROP"])
 
@@ -415,7 +445,11 @@ class Gateway:
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(service_name)
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        self._drop_mesh_conntrack(g.user_ip)
+                        self._rebuild_mesh_rules()
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
         return True
 
     def unblock_service(self, username: str, service_name: str) -> bool:
@@ -460,7 +494,11 @@ class Gateway:
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(service_name)
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        self._drop_mesh_conntrack(g.user_ip)
+                        self._rebuild_mesh_rules()
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
         return True
 
     def lock_user(self, username: str) -> bool:
@@ -473,12 +511,19 @@ class Gateway:
                 return False
             u["blocked_services"] = sorted(self.services.keys())
             self._save_users()
+            mesh_affected = False
             for key in [k for k in self.grants if k[0] == username]:
                 g = self.grants.pop(key)
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(key[1])
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        mesh_affected = True
+                        self._drop_mesh_conntrack(g.user_ip)
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
+            if mesh_affected:
+                self._rebuild_mesh_rules()
         return True
 
     def unlock_user(self, username: str) -> bool:
@@ -505,12 +550,19 @@ class Gateway:
             u = self.users.get(username)
             if u is None or not u.get("public_key"):
                 return False
+            mesh_affected = False
             for key in [k for k in self.grants if k[0] == username]:
                 g = self.grants.pop(key)
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(key[1])
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        mesh_affected = True
+                        self._drop_mesh_conntrack(g.user_ip)
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
+            if mesh_affected:
+                self._rebuild_mesh_rules()
             try:
                 self._wg_remove_peer(u["public_key"])
             except Exception as e:
@@ -533,12 +585,19 @@ class Gateway:
             u = self.users.pop(username, None)
             if u is None:
                 return False
+            mesh_affected = False
             for key in [k for k in self.grants if k[0] == username]:
                 g = self.grants.pop(key)
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(key[1])
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        mesh_affected = True
+                        self._drop_mesh_conntrack(g.user_ip)
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
+            if mesh_affected:
+                self._rebuild_mesh_rules()
             if u.get("public_key"):
                 try:
                     self._wg_remove_peer(u["public_key"])
@@ -762,6 +821,11 @@ class Gateway:
     # --- grants (activation) ---------------------------------------------
 
     def _build_rules(self, user_ip: str, svc: Service) -> list[list[str]]:
+        # Mesh services don't install per-grant rules into SIG_FORWARD;
+        # their rules live in SIG_MESH and are rebuilt centrally whenever
+        # membership changes (_rebuild_mesh_rules).
+        if svc.kind == "mesh":
+            return []
         rules: list[list[str]] = []
         targets = svc.resolved or svc.cidrs
         for dest in targets:
@@ -772,6 +836,63 @@ class Gateway:
             rule += ["-j", "ACCEPT"]
             rules.append(rule)
         return rules
+
+    # --- mesh (shared-network) management --------------------------------
+
+    def _mesh_services(self) -> list[Service]:
+        return [s for s in self.services.values() if s.kind == "mesh"]
+
+    def _mesh_members(self) -> list[tuple[str, str, float]]:
+        """Current mesh members as (username, wg_ip, expires_at) tuples —
+        one entry per user per mesh service they have an unexpired grant
+        for. Multiple mesh services are possible but unusual."""
+        now = time.time()
+        out: list[tuple[str, str, float]] = []
+        for (user, svc_name), g in self.grants.items():
+            svc = self.services.get(svc_name)
+            if svc is None or svc.kind != "mesh":
+                continue
+            if g.expires_at <= now:
+                continue
+            out.append((user, g.user_ip, g.expires_at))
+        return out
+
+    def _rebuild_mesh_rules(self) -> None:
+        """Flush SIG_MESH and install pairwise ACCEPTs for every currently
+        active mesh-member pair. Called under self._lock by any operation
+        that changes mesh membership (activate, extend into existence,
+        deactivate, reap, admin block/revoke)."""
+        if not self.enable_netfilter:
+            return
+        _run(["iptables", "-F", MESH_CHAIN])
+        ips = sorted({ip for _, ip, _ in self._mesh_members()})
+        for src in ips:
+            for dst in ips:
+                if src == dst:
+                    continue
+                _run(["iptables", "-A", MESH_CHAIN,
+                      "-s", f"{src}/32", "-d", f"{dst}/32", "-j", "ACCEPT"])
+
+    def _drop_mesh_conntrack(self, user_ip: str) -> None:
+        """When a peer leaves the mesh, kill any in-flight connections they
+        have with other mesh members so open SSH/HTTP sessions are cut,
+        not just future ones."""
+        if not self.enable_netfilter:
+            return
+        for _, other_ip, _ in self._mesh_members():
+            if other_ip == user_ip:
+                continue
+            _run(["conntrack", "-D", "-s", user_ip, "-d", other_ip],
+                 check=False, capture=True)
+            _run(["conntrack", "-D", "-s", other_ip, "-d", user_ip],
+                 check=False, capture=True)
+
+    def list_mesh_peers(self) -> list[dict]:
+        """Expose membership to users who are themselves in the mesh."""
+        return [
+            {"username": u, "wg_ip": ip, "expires_at": exp}
+            for u, ip, exp in sorted(self._mesh_members(), key=lambda m: m[1])
+        ]
 
     def _apply_rules(self, rules: list[list[str]], *, delete: bool = False) -> None:
         if not self.enable_netfilter:
@@ -825,6 +946,8 @@ class Gateway:
             self.grants[key] = Grant(user=user, service=service_name,
                                      user_ip=user_ip, source_ip=source_ip,
                                      expires_at=expires, rules=rules)
+            if svc.kind == "mesh":
+                self._rebuild_mesh_rules()
         return expires
 
     def extend(self, user: str, service_name: str,
@@ -853,6 +976,8 @@ class Gateway:
                 self.grants[key] = Grant(user=user, service=service_name,
                                          user_ip=u["ip"], source_ip=source_ip,
                                          expires_at=expires, rules=rules)
+                if svc.kind == "mesh":
+                    self._rebuild_mesh_rules()
             else:
                 g.expires_at = expires
                 if source_ip:
@@ -867,7 +992,13 @@ class Gateway:
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(service_name)
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        # Tear down in-flight peer connections BEFORE rebuilding
+                        # the chain so we can still see which peers to target.
+                        self._drop_mesh_conntrack(g.user_ip)
+                        self._rebuild_mesh_rules()
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
 
     def status_for_user(self, user: str) -> dict[str, float]:
         now = time.time()
@@ -891,6 +1022,7 @@ class Gateway:
     def _reap_expired(self) -> None:
         now = time.time()
         expired: list[tuple[tuple[str, str], Grant]] = []
+        mesh_affected = False
         with self._lock:
             for key, g in list(self.grants.items()):
                 if g.expires_at <= now:
@@ -900,7 +1032,13 @@ class Gateway:
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(service_name)
                 if svc is not None:
-                    self._drop_conntrack(g.user_ip, svc)
+                    if svc.kind == "mesh":
+                        mesh_affected = True
+                        self._drop_mesh_conntrack(g.user_ip)
+                    else:
+                        self._drop_conntrack(g.user_ip, svc)
+            if mesh_affected:
+                self._rebuild_mesh_rules()
         for (user, service), g in expired:
             log.info("reaped grant user=%s service=%s", user, service)
             self.audit.record("grant_expired", user=user, service=service,

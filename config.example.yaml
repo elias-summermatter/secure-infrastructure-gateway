@@ -45,6 +45,27 @@ service_health:
   public_check_enabled: false    # query portchecker.io? (sends hostname)
   public_check_interval: 21600   # seconds between public probes (6h)
 
+# ---- Shared network (peer-to-peer opt-in) -------------------------------
+#
+# Injects a synthetic service ("shared-network" by default) that users can
+# activate just like any other. While active, every opted-in user can reach
+# every other opted-in user's WG IP directly over the tunnel — a small,
+# end-to-end-encrypted mesh for ad-hoc collaboration (copy files, screen
+# share over SSH, throwaway HTTP server, whatever).
+#
+# Same 1h-grant/8h-cap/extend/auto-expire semantics as other services.
+# Same admin controls: block per user, approve per user (if requires_approval
+# is set), lock entire user. Outside members cannot see the mesh members
+# or reach their IPs — traffic between members is also inaccessible to
+# non-members.
+#
+# Set enabled: false if you don't want this feature available at all.
+
+shared_network:
+  enabled: true                   # default on; flip to disable entirely
+  name: "shared-network"          # service name shown on the dashboard
+  requires_approval: false        # set true to gate per user via admin approval
+
 # ---- WireGuard gateway --------------------------------------------------
 
 # UDP endpoint the client will dial. Must be reachable from every user's

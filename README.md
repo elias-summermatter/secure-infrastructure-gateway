@@ -207,6 +207,55 @@ password fields automatically, leaving just the GitHub button.
 
 ---
 
+## Shared network (opt-in peer-to-peer)
+
+By default the gateway enforces **strict peer isolation**: two WG clients
+cannot reach each other, even though both sit on the same tunnel. Every
+peer-to-peer packet is caught by the `SIG_FORWARD` chain's default DROP.
+
+For cases where team members genuinely need to talk to each other — copy
+a file to a colleague, share a scratch HTTP server, screen-share an SSH
+session — the gateway ships a synthetic service called `shared-network`.
+It appears in the dashboard like any other service and uses the exact
+same grant mechanics (1h default, extend +1h, 8h cap, auto-expire).
+
+**Flow:**
+
+1. User clicks Activate on `shared-network`. A warning dialog explains
+   the trade-off: their machine will be reachable from every other
+   currently-active member for the duration of the grant.
+2. On accept, the gateway adds their WG IP to the active mesh set and
+   rebuilds a dedicated `SIG_MESH` iptables sub-chain with pair-wise
+   ACCEPT rules between every active member.
+3. While active, the user sees a *Shared network peers* table listing
+   every other member with their username, WG IP, and grant countdown.
+4. When the grant expires (or is deactivated / revoked / blocked), the
+   member drops out, pair-wise rules are rebuilt without them, and
+   in-flight connections to their former peers are torn down via
+   `conntrack -D`.
+
+**Security model:**
+
+- **Traffic is confidential and integrity-protected** — it stays inside
+  the WireGuard tunnel (X25519 + per-user PSK) between the two members.
+  The gateway never NATs or re-encrypts; packets go direct inside the
+  encrypted transport. Non-members cannot see or reach this traffic.
+- **But your machine IS exposed to the other active members.** If you
+  run services that listen on `10.77.0.X`, every peer can try them.
+  Bind sensitive things to `127.0.0.1` or firewall your WG interface.
+- **Admin controls apply** — block, approve (if `requires_approval`),
+  lock, revoke, delete. Leaving the mesh via any of these tears down
+  the pair-wise rules and kills in-flight flows immediately.
+- **Opt-in, time-limited.** A forgotten membership auto-expires. A
+  compromised laptop's window of exposure is bounded by the grant.
+
+**Disabling:**
+
+Set `shared_network.enabled: false` in `config.yaml` to remove the
+service entirely. Existing grants tear down on next restart. You can
+also set `requires_approval: true` to gate it per user via the existing
+admin approval flow.
+
 ## Service health chips
 
 Every service row on the dashboard now carries two coloured tags driven
