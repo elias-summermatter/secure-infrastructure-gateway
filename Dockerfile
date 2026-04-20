@@ -1,4 +1,15 @@
-FROM python:3.12-slim
+# Docker Hardened Image: signed by Anchore/Docker, continuously rebuilt on
+# CVE disclosure, ships with an SBOM. The `-sfw-dev` variant adds Socket
+# Firewall Free — during `pip install` below, every package (direct +
+# transitive) is checked against Socket's malicious-package feed and blocked
+# before it lands on disk. Build-time only; no runtime overhead or config.
+FROM dhi.io/python:3-sfw-dev
+
+# DHI base images run as a non-root user by default. The gateway needs
+# CAP_NET_ADMIN to manipulate wg0 + iptables, so we must run as root in
+# the container. cap_drop:ALL + cap_add:NET_ADMIN + no-new-privileges in
+# docker-compose.yml keep the blast radius narrow.
+USER root
 
 WORKDIR /app
 
