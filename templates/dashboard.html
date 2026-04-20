@@ -30,6 +30,7 @@
     .status-inactive { color: #6c7086; }
     .status-active { color: #a6e3a1; font-weight: 600; }
     .countdown { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .until { color: #6c7086; font-size: 0.85em; font-family: ui-monospace, monospace; margin-left: 0.25rem; }
 
     button { padding: 0.45rem 0.9rem; margin-right: 0.25rem; border: 0; border-radius: 5px; cursor: pointer; font-weight: 500; font-size: 0.9rem; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -381,7 +382,8 @@ function render() {
     if (exp && exp > now) {
       const remaining = exp - now;
       const atMax = remaining >= MAX_SECONDS - 30;
-      statusCell.innerHTML = `<span class="status-active">active</span> <span class="countdown">${fmt(remaining)}</span>`;
+      const untilClock = FMT_CLOCK.format(new Date(exp * 1000));
+      statusCell.innerHTML = `<span class="status-active">active</span> <span class="countdown">${fmt(remaining)}</span> <span class="until">(until ${untilClock})</span>`;
       actionsCell.innerHTML = `
         <button class="btn-primary" ${atMax ? 'disabled title="at 8h cap"' : ''} data-action="extend" data-name="${name}">Extend +1h</button>
         <button class="btn-danger" data-action="deactivate" data-name="${name}">Deactivate</button>
@@ -642,6 +644,11 @@ let auditTotal = 0;
 const FMT_TIME = new Intl.DateTimeFormat('sv-SE', {
   timeZone: TZ,
   hour: '2-digit', minute: '2-digit', second: '2-digit',
+  hour12: false,
+});
+const FMT_CLOCK = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: TZ,
+  hour: '2-digit', minute: '2-digit',
   hour12: false,
 });
 function fmtAuditDetail(e) {
