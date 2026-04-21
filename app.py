@@ -376,7 +376,14 @@ def create_app(config: dict) -> Flask:
                 audit.record("webhook_failed", ip=src, webhook=wh.name,
                              reason="signature mismatch")
                 abort(403)
-        headers = {k: v for k, v in request.headers.items() if k in FORWARD_HEADERS}
+        # request.headers.get() is case-insensitive (Werkzeug), so walk the
+        # whitelist and pull values by canonical name — this handles GitHub
+        # sending "X-Github-Event" vs our set entry "X-GitHub-Event".
+        headers = {}
+        for canonical in FORWARD_HEADERS:
+            v = request.headers.get(canonical)
+            if v is not None:
+                headers[canonical] = v
         try:
             upstream = requests.post(wh.target, data=body, headers=headers,
                                      timeout=wh.timeout, allow_redirects=False)
