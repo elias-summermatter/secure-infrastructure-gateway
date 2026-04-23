@@ -209,6 +209,104 @@ class Gateway:
         tmp.write_text(json.dumps(self.user_session_cutoff, indent=2))
         tmp.replace(p)
 
+    # --- grant persistence ------------------------------------------------
+    #
+    # Grants live in-memory on a running gateway, but restart is common
+    # (CVE rebase, Watchtower update, manual redeploy) and losing active
+    # grants mid-flight is hostile to users — their SSH/psql session
+    # would drop because the iptables ACCEPT is gone. Persist to
+    # `state/grants.json` on every change and reinstate on start().
+    #
+    # What we persist: user, service, user_ip, source_ip, expires_at.
+    # What we rebuild fresh on restore: the iptables rule args (pulled
+    # from the current svc.resolved, since DNS may have moved during
+    # the restart window) and the mesh sub-chain (membership-derived).
+
+    def _grants_path(self) -> Path:
+        return self.state_dir / "grants.json"
+
+    def _save_grants(self) -> None:
+        p = self._grants_path()
+        serialized = [
+            {
+                "user": g.user,
+                "service": g.service,
+                "user_ip": g.user_ip,
+                "source_ip": g.source_ip,
+                "expires_at": g.expires_at,
+            }
+            for g in self.grants.values()
+        ]
+        tmp = p.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(serialized, indent=2))
+            tmp.replace(p)
+        except OSError as e:
+            log.warning("could not save %s: %s", p, e)
+
+    def _restore_grants(self) -> None:
+        """Reload persisted grants and reinstall iptables rules. Called
+        from start() after _setup_base_firewall has flushed the chain.
+        Skip anything expired, referencing a deleted user, or pointing
+        at a removed service."""
+        p = self._grants_path()
+        if not p.exists():
+            return
+        try:
+            data = json.loads(p.read_text())
+        except Exception as e:
+            log.warning("could not load grants.json: %s", e)
+            return
+        if not isinstance(data, list):
+            return
+        now = time.time()
+        mesh_present = False
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            svc = self.services.get(item.get("service"))
+            if svc is None:
+                continue
+            user = item.get("user")
+            u = self.users.get(user) if user else None
+            if not u or not u.get("public_key"):
+                continue
+            try:
+                expires_at = float(item.get("expires_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if expires_at <= now:
+                continue
+            user_ip = item.get("user_ip") or u.get("ip")
+            if not user_ip:
+                continue
+            rules = self._build_rules(user_ip, svc)
+            try:
+                self._apply_rules(rules)
+            except Exception as e:
+                log.warning("failed to restore grant %s/%s: %s",
+                            user, svc.name, e)
+                continue
+            self.grants[(user, svc.name)] = Grant(
+                user=user,
+                service=svc.name,
+                user_ip=user_ip,
+                source_ip=item.get("source_ip"),
+                expires_at=expires_at,
+                rules=rules,
+            )
+            if svc.kind == "mesh":
+                mesh_present = True
+        if mesh_present:
+            self._rebuild_mesh_rules()
+        if self.grants:
+            log.info("restored %d grants from %s", len(self.grants), p)
+        # Rewrite the file so it matches what actually survived restore:
+        # expired entries, grants for deleted users, and grants pointing
+        # at removed services are all filtered out during load. Persist
+        # the canonical view rather than letting stale entries linger.
+        self._save_grants()
+
     def is_session_stale(self, username: str, login_at: float) -> bool:
         """Return True if a session for `username` with the given login_at
         was created before the most recent revoke/delete of that username."""
@@ -234,6 +332,10 @@ class Gateway:
                 except Exception as e:
                     log.warning("failed to re-add peer %s: %s", username, e)
         self._resolve_all_services()
+        # Reinstate any grants that were active when we last stopped, so
+        # users don't lose their sessions on restart / image update.
+        if self.enable_netfilter:
+            self._restore_grants()
         threading.Thread(target=self._resolver_loop, daemon=True, name="resolver").start()
         threading.Thread(target=self._reaper_loop, daemon=True, name="reaper").start()
         threading.Thread(target=self._local_check_loop, daemon=True, name="local-health").start()
@@ -450,6 +552,7 @@ class Gateway:
                         self._rebuild_mesh_rules()
                     else:
                         self._drop_conntrack(g.user_ip, svc)
+                self._save_grants()
         return True
 
     def unblock_service(self, username: str, service_name: str) -> bool:
@@ -499,6 +602,7 @@ class Gateway:
                         self._rebuild_mesh_rules()
                     else:
                         self._drop_conntrack(g.user_ip, svc)
+                self._save_grants()
         return True
 
     def lock_user(self, username: str) -> bool:
@@ -512,7 +616,9 @@ class Gateway:
             u["blocked_services"] = sorted(self.services.keys())
             self._save_users()
             mesh_affected = False
+            had_grants = False
             for key in [k for k in self.grants if k[0] == username]:
+                had_grants = True
                 g = self.grants.pop(key)
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(key[1])
@@ -524,6 +630,8 @@ class Gateway:
                         self._drop_conntrack(g.user_ip, svc)
             if mesh_affected:
                 self._rebuild_mesh_rules()
+            if had_grants:
+                self._save_grants()
         return True
 
     def unlock_user(self, username: str) -> bool:
@@ -551,7 +659,9 @@ class Gateway:
             if u is None or not u.get("public_key"):
                 return False
             mesh_affected = False
+            had_grants = False
             for key in [k for k in self.grants if k[0] == username]:
+                had_grants = True
                 g = self.grants.pop(key)
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(key[1])
@@ -563,6 +673,8 @@ class Gateway:
                         self._drop_conntrack(g.user_ip, svc)
             if mesh_affected:
                 self._rebuild_mesh_rules()
+            if had_grants:
+                self._save_grants()
             try:
                 self._wg_remove_peer(u["public_key"])
             except Exception as e:
@@ -586,7 +698,9 @@ class Gateway:
             if u is None:
                 return False
             mesh_affected = False
+            had_grants = False
             for key in [k for k in self.grants if k[0] == username]:
+                had_grants = True
                 g = self.grants.pop(key)
                 self._apply_rules(g.rules, delete=True)
                 svc = self.services.get(key[1])
@@ -598,6 +712,8 @@ class Gateway:
                         self._drop_conntrack(g.user_ip, svc)
             if mesh_affected:
                 self._rebuild_mesh_rules()
+            if had_grants:
+                self._save_grants()
             if u.get("public_key"):
                 try:
                     self._wg_remove_peer(u["public_key"])
@@ -960,6 +1076,7 @@ class Gateway:
                                      expires_at=expires, rules=rules)
             if svc.kind == "mesh":
                 self._rebuild_mesh_rules()
+            self._save_grants()
         return expires
 
     def extend(self, user: str, service_name: str,
@@ -994,6 +1111,7 @@ class Gateway:
                 g.expires_at = expires
                 if source_ip:
                     g.source_ip = source_ip
+            self._save_grants()
         return expires
 
     def deactivate(self, user: str, service_name: str) -> None:
@@ -1011,6 +1129,7 @@ class Gateway:
                         self._rebuild_mesh_rules()
                     else:
                         self._drop_conntrack(g.user_ip, svc)
+                self._save_grants()
 
     def status_for_user(self, user: str) -> dict[str, float]:
         now = time.time()
@@ -1051,6 +1170,8 @@ class Gateway:
                         self._drop_conntrack(g.user_ip, svc)
             if mesh_affected:
                 self._rebuild_mesh_rules()
+            if expired:
+                self._save_grants()
         for (user, service), g in expired:
             log.info("reaped grant user=%s service=%s", user, service)
             self.audit.record("grant_expired", user=user, service=service,

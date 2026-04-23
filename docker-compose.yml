@@ -1,12 +1,19 @@
 services:
   gateway:
-    build: .
+    # Pull the prebuilt image from GHCR. `:latest` moves on every push to
+    # main and on the nightly CVE-rebase run — Watchtower (below) picks
+    # up those publishes automatically. Pin to a specific :<sha> or
+    # :<YYYYMMDD> tag if you want a frozen deploy.
+    image: ghcr.io/elias-summermatter/portcullis:latest
     cap_drop:
       - ALL
     cap_add:
       - NET_ADMIN
     security_opt:
       - no-new-privileges:true
+    labels:
+      # Opt this container in to Watchtower's label-gated auto-update.
+      com.centurylinklabs.watchtower.enable: "true"
     devices:
       - /dev/net/tun:/dev/net/tun
     sysctls:
@@ -38,6 +45,9 @@ services:
   # Reverse proxy + automatic TLS via Let's Encrypt. Requires DNS pointing
   # at this VM and ports 80/443 open.
   caddy:
+    # Pinned to the 2.x major so a future Caddy 3.x release can't land
+    # automatically with potential breaking changes. Watchtower still
+    # picks up every 2.x.y patch within this line.
     image: caddy:2-alpine
     cap_drop:
       - ALL
@@ -45,6 +55,8 @@ services:
       - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     ports:
       - "80:80"
       - "443:443"
@@ -58,6 +70,35 @@ services:
     depends_on:
       - gateway
     restart: unless-stopped
+
+  # Polls the registry for new versions of the services tagged with
+  # com.centurylinklabs.watchtower.enable=true and restarts them with
+  # the updated image. Only opt-in containers are touched, so nothing
+  # running on the same host that isn't labelled gets surprised.
+  #
+  # Trust note: Watchtower mounts docker.sock (full root-equivalent on
+  # the host) and trusts the registry to only ship intended images. The
+  # GHCR source is gated by GitHub's package push auth; image pulls are
+  # HTTPS. Pin to :<sha> on the services above if you'd rather review
+  # each update manually instead of auto-applying.
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Zurich
+      WATCHTOWER_CLEANUP: "true"          # remove old images after updating
+      WATCHTOWER_LABEL_ENABLE: "true"     # only watch labelled containers
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_ROLLING_RESTART: "true"  # update one service at a time
+      # Poll the registry every 5 minutes — restarts happen only when the
+      # image digest actually changes, so this is cheap. Gives ~5-minute
+      # latency between "CI pushes a new :latest" and "running container
+      # is on that image," which is as close to always-latest as you get
+      # without registry-side webhooks.
+      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_NOTIFICATIONS_LEVEL: info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   caddy_data:
