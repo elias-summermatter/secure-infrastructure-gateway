@@ -653,11 +653,8 @@ def create_app(config: dict) -> Flask:
                 audit.record("login", user=u, ip=request.remote_addr, via="password")
                 # _safe_next() rejects any target with a scheme, netloc, or
                 # protocol-relative prefix — only local absolute paths pass.
-                # The scanners (Semgrep/CodeQL) can't see through the helper
-                # to the validation that actually happens there. Suppressing
-                # with justification: the guard is at app.py:_safe_next.
-                # nosemgrep: python.flask.security.open-redirect.open-redirect
-                return redirect(_safe_next(request.args.get("next")) or url_for("dashboard"))  # lgtm[py/url-redirection]
+                # Scanners can't see through the helper to the validation.
+                return redirect(_safe_next(request.args.get("next")) or url_for("dashboard"))  # nosemgrep: python.flask.security.open-redirect.open-redirect lgtm[py/url-redirection]
             audit.record("login_failed", user=u or None, ip=request.remote_addr,
                          via="password")
             error = "Invalid username or password"
@@ -679,8 +676,7 @@ def create_app(config: dict) -> Flask:
             # GitHub requires an absolute redirect_uri — relative paths are
             # rejected. _external=True is a functional requirement of the
             # OAuth flow, not a misconfiguration.
-            # nosemgrep: python.flask.security.audit.flask-url-for-external-true.flask-url-for-external-true
-            "redirect_uri": url_for("oauth_github_callback", _external=True),
+            "redirect_uri": url_for("oauth_github_callback", _external=True),  # nosemgrep: python.flask.security.audit.flask-url-for-external-true.flask-url-for-external-true
             "scope": "read:org",
             "state": state,
             "allow_signup": "false",
@@ -713,8 +709,7 @@ def create_app(config: dict) -> Flask:
                     "code": code,
                     # Must match the redirect_uri sent on the initial
                     # authorize step (same _external=True justification).
-                    # nosemgrep: python.flask.security.audit.flask-url-for-external-true.flask-url-for-external-true
-                    "redirect_uri": url_for("oauth_github_callback", _external=True),
+                    "redirect_uri": url_for("oauth_github_callback", _external=True),  # nosemgrep: python.flask.security.audit.flask-url-for-external-true.flask-url-for-external-true
                 },
                 headers={"Accept": "application/json"},
                 timeout=10,
