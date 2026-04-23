@@ -118,7 +118,7 @@
       <div class="step-body">
         <h4>Import the <code>.conf</code> file you downloaded</h4>
         <p>Click <strong>Import tunnel(s) from file</strong> (bottom left) and pick
-        the file (e.g. <code>wepublish-gw.conf</code>) from your Downloads folder.
+        the file (e.g. <code>portcullis.conf</code>) from your Downloads folder.
         You can also drag the file onto the window.</p>
       </div>
     </div>
@@ -236,20 +236,20 @@ sudo pacman -S wireguard-tools</code></pre>
 
     <p>Move the downloaded config into <code>/etc/wireguard/</code> with
     strict permissions so <code>wg-quick</code> accepts it:</p>
-    <pre><code>sudo install -m 600 ~/Downloads/wepublish-gw.conf /etc/wireguard/</code></pre>
+    <pre><code>sudo install -m 600 ~/Downloads/portcullis.conf /etc/wireguard/</code></pre>
 
     <p>Bring the tunnel up:</p>
-    <pre><code>sudo wg-quick up wepublish-gw</code></pre>
+    <pre><code>sudo wg-quick up portcullis</code></pre>
     <p>Verify:</p>
     <pre><code>sudo wg show</code></pre>
     <p>You should see <code>latest handshake: N seconds ago</code> within
     ~5 seconds.</p>
 
     <p>Tear it down when you're done:</p>
-    <pre><code>sudo wg-quick down wepublish-gw</code></pre>
+    <pre><code>sudo wg-quick down portcullis</code></pre>
 
     <p>Optional, auto-start on boot:</p>
-    <pre><code>sudo systemctl enable wg-quick@wepublish-gw</code></pre>
+    <pre><code>sudo systemctl enable wg-quick@portcullis</code></pre>
   </section>
 
   <h2>Using the gateway</h2>
@@ -306,7 +306,7 @@ sudo pacman -S wireguard-tools</code></pre>
   <h3>How do I stop the tunnel?</h3>
   <ul>
     <li><strong>Windows / macOS:</strong> toggle the tunnel off in the WireGuard app.</li>
-    <li><strong>Linux:</strong> <code>sudo wg-quick down wepublish-gw</code></li>
+    <li><strong>Linux:</strong> <code>sudo wg-quick down portcullis</code></li>
   </ul>
 
   <h2>Questions or problems?</h2>

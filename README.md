@@ -713,7 +713,7 @@ userspace proxy would break the chain of trust.
 - **Origin/Referer check on all state-changing POSTs** — closes the
   cross-subdomain CSRF gap left open by `SameSite=Lax` (which treats
   siblings under the same registered domain as same-site). A
-  compromised `editor-bajoir.wepublish.cloud` cannot CSRF us.
+  compromised sibling subdomain (e.g. `editor.example.com`) cannot CSRF us.
 - **`X-Frame-Options: DENY` + `frame-ancestors 'none'`** — clickjacking
   closed two ways.
 - **HSTS with `preload` + 2-year max-age + `includeSubDomains`**.

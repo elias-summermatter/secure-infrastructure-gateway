@@ -4,19 +4,21 @@
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report privately to **elias@wepublish.ch** with:
+Use GitHub's **Private Vulnerability Reporting** for this repository:
 
-- A description of the issue and its impact
-- Reproduction steps (PoC welcome)
-- The version / commit SHA you tested against
-- Your preferred credit / disclosure name (optional)
+1. Go to the repo's **Security** tab
+2. Click **Report a vulnerability**
+3. Fill in the form — description, reproduction steps, impact assessment,
+   the commit SHA you tested against, and optionally your preferred
+   disclosure name
 
-You will get an acknowledgement within **72 hours**. We aim to assess
-and respond with a timeline within **7 days**, and to have a fix
-released within **30 days** for high-severity issues.
+The report stays private between you and the maintainers until we agree
+on a coordinated disclosure timeline. No email address to memorise, no
+PGP-key hand-off, no "did the mail arrive?" uncertainty.
 
-If you prefer encrypted correspondence, request our PGP key in your
-first message and we'll send it separately.
+You will receive an acknowledgement within **72 hours**. We aim to
+respond with a timeline within **7 days** and have a fix released
+within **30 days** for high-severity issues.
 
 ## Scope
 
@@ -55,7 +57,7 @@ We ask that reporters:
 
 In exchange, we will:
 
-1. Keep you updated on our progress.
+1. Keep you updated on our progress via the private advisory thread.
 2. Credit you publicly in the release notes (with your consent).
 3. Not pursue legal action against good-faith security research
    conducted within these guidelines.

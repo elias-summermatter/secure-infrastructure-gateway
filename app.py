@@ -236,9 +236,9 @@ def create_app(config: dict) -> Flask:
         """Reject state-changing requests whose Origin doesn't match our host.
 
         Closes the cross-subdomain CSRF gap: browsers treat siblings under
-        the same registered domain (e.g. `editor-bajoir.wepublish.cloud`
-        and `gateway.wepublish.cloud`) as same-site, so `SameSite=Lax`
-        still permits session cookies on cross-subdomain POST navigations.
+        the same registered domain (e.g. `editor.example.com` and
+        `gateway.example.com`) as same-site, so `SameSite=Lax` still
+        permits session cookies on cross-subdomain POST navigations.
         A compromised sibling could otherwise auto-submit forms to our
         /api/admin/* endpoints with the victim's cookies attached.
 
@@ -349,7 +349,7 @@ def create_app(config: dict) -> Flask:
         )
         # HSTS with preload + 2-year max-age. `preload` signals that you
         # want to be added to the browsers' baked-in HSTS list (submit
-        # via hstspreload.org once your entire `wepublish.cloud` subtree
+        # via hstspreload.org once your entire base domain's subtree
         # is HTTPS-only — this commits you to that).
         resp.headers.setdefault(
             "Strict-Transport-Security",
