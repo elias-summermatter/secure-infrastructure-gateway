@@ -654,7 +654,7 @@ def create_app(config: dict) -> Flask:
                 # _safe_next() rejects any target with a scheme, netloc, or
                 # protocol-relative prefix — only local absolute paths pass.
                 # Scanners can't see through the helper to the validation.
-                return redirect(_safe_next(request.args.get("next")) or url_for("dashboard"))  # nosemgrep: python.flask.security.open-redirect.open-redirect lgtm[py/url-redirection]
+                return redirect(_safe_next(request.args.get("next")) or url_for("dashboard"))  # nosemgrep: python.flask.security.open-redirect.open-redirect
             audit.record("login_failed", user=u or None, ip=request.remote_addr,
                          via="password")
             error = "Invalid username or password"
