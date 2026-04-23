@@ -1,4 +1,4 @@
-# Secure Infrastructure Gateway
+# Portcullis
 
 A small self-hosted WireGuard access gateway with a web UI. Users sign in
 (password or GitHub OAuth), download a WireGuard config, and activate
@@ -109,7 +109,7 @@ sudo ufw allow 51820/udp
 sudo ufw enable
 
 # 3. Clone this repo onto the VM and create a config file.
-git clone <this-repo> sig && cd sig
+git clone <this-repo> portcullis && cd portcullis
 cp config.example.yaml config.yaml
 #   Fill in at minimum:
 #     - secret_key   (python -c 'import secrets; print(secrets.token_hex(32))')
@@ -132,6 +132,32 @@ UDP port and isn't proxied.
 **Back up `./state/`.** It holds the server's WireGuard private key and
 every user's peer assignment — losing it invalidates every config
 you've handed out.
+
+### Using the prebuilt image
+
+Instead of building locally, you can pull the image CI publishes on
+every push to `main` and every night:
+
+```yaml
+# docker-compose.yml — replace the `build: .` line with:
+services:
+  gateway:
+    image: seccomch/portcullis:latest                        # Docker Hub
+    # or: ghcr.io/elias-summermatter/portcullis:latest       # GHCR
+    # ...everything else unchanged
+```
+
+Both registries receive the same bit-for-bit image on every publish.
+GHCR has no anonymous pull-rate limit; Docker Hub caps anonymous pulls
+at 100 per 6h per IP (`docker login` once on the VM to lift it).
+
+Available tags:
+- `latest` — most recent publish (either a push to `main` or a nightly rebuild)
+- `<short-sha>` — pin to a specific commit, e.g. `a1cf099`
+- `<YYYYMMDD>` — pin to a specific build date (useful after a nightly CVE rebuild)
+
+Then update with `docker compose pull && docker compose up -d`. No
+local build toolchain needed on the VM.
 
 ## Running without Docker (dev mode)
 
@@ -478,7 +504,7 @@ every archive.
 ### Update the gateway
 
 ```bash
-cd sig
+cd portcullis
 git pull
 docker compose up -d --build
 ```
@@ -500,7 +526,7 @@ automatically within a few seconds.
 ### Back up state
 
 ```bash
-tar czf sig-backup-$(date +%F).tar.gz config.yaml state/
+tar czf portcullis-backup-$(date +%F).tar.gz config.yaml state/
 ```
 
 `state/` holds the server's WG private key and every user's peer
@@ -708,6 +734,16 @@ userspace proxy would break the chain of trust.
 - **Dependabot** (`.github/dependabot.yml`) opens PRs when any
   pip/docker/github-actions dependency has a new version, with
   security updates filed immediately regardless of schedule.
+- **Nightly image rebuild** (`.github/workflows/build.yml`) runs every
+  night at 03:00 UTC and on every push to `main`. Publishes bit-for-bit
+  identical images to both `seccomch/portcullis` on Docker Hub and
+  `ghcr.io/elias-summermatter/portcullis` on GHCR, tagged `latest` (moves
+  on every publish), the short commit SHA, and the build date. Nightly
+  runs exist specifically to rebase on fresh DHI base layers — Docker
+  Hardened Images get rebuilt upstream whenever a CVE is fixed, and
+  nightly re-pull is what actually gets those fixes into your running
+  container. SBOM and build provenance attestations are attached to
+  every image.
 - **Static security analysis in CI** (`.github/workflows/security.yml`)
   runs on every push and weekly:
   - **Bandit** — Python security linter

@@ -1,4 +1,4 @@
-"""Secure Infrastructure Gateway: WireGuard + iptables per-service access control.
+"""Portcullis: WireGuard + iptables per-service access control.
 
 State model:
 - one WireGuard interface (wg0) with a server keypair persisted to disk

@@ -31,7 +31,7 @@
 <body>
   <form method="post">
     <img class="brand-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="">
-    <h1>Secure Infrastructure Gateway</h1>
+    <h1>Portcullis</h1>
     <div class="subtitle">Sign in to manage your WireGuard access</div>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     {% if github_enabled %}
@@ -51,7 +51,7 @@
   </form>
   <footer class="page-footer">
     Developed by Elias Summermatter ·
-    <a href="https://github.com/elias-summermatter/secure-infrastructure-gateway" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/elias-summermatter/portcullis" target="_blank" rel="noopener">GitHub</a>
   </footer>
 </body>
 </html>

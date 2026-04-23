@@ -1,0 +1,77 @@
+# Builds the gateway image and publishes it to Docker Hub AND GitHub
+# Container Registry on every push to main and nightly at 03:00 UTC.
+# Nightly runs exist to rebase on fresh DHI base layers so CVE fixes that
+# Docker Hardened Images ship upstream actually reach the running container.
+#
+# Required repo secrets (Docker Hub half; GHCR uses the built-in token):
+#   DOCKERHUB_USERNAME — Docker Hub username (e.g. "seccomch")
+#   DOCKERHUB_TOKEN    — Docker Hub access token with read/write/delete on
+#                        the portcullis repository (create under Docker Hub
+#                        → Account Settings → Security → New Access Token).
+name: build
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"   # 03:00 UTC daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write   # push to ghcr.io
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_IMAGE: seccomch/portcullis
+      GHCR_IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          echo "sha=$(echo "${{ github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push (Docker Hub + GHCR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Image is built once and pushed to both registries in the same
+          # step — bit-for-bit identical digests on Docker Hub and GHCR.
+          # `latest` moves on every publish (both push and nightly). Pin to
+          # the date or sha tag for reproducibility.
+          tags: |
+            ${{ env.DOCKERHUB_IMAGE }}:latest
+            ${{ env.DOCKERHUB_IMAGE }}:${{ steps.tags.outputs.sha }}
+            ${{ env.DOCKERHUB_IMAGE }}:${{ steps.tags.outputs.date }}
+            ${{ env.GHCR_IMAGE }}:latest
+            ${{ env.GHCR_IMAGE }}:${{ steps.tags.outputs.sha }}
+            ${{ env.GHCR_IMAGE }}:${{ steps.tags.outputs.date }}
+          # Cache layers across runs. Speeds nightly rebuilds when only the
+          # base-image SBOM drifted; on app-code pushes it reuses pip layer.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # SBOM + provenance attestations attached to the image. Verifiable
+          # with `cosign verify-attestation` against the published digest.
+          provenance: true
+          sbom: true

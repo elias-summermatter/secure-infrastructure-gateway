@@ -97,11 +97,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build image
-        run: docker build -t sig:scan .
+        run: docker build -t portcullis:scan .
       - name: Trivy scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: sig:scan
+          image-ref: portcullis:scan
           format: sarif
           output: trivy.sarif
           severity: CRITICAL,HIGH
